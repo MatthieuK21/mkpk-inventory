@@ -20,7 +20,10 @@ echo "==> Starting the Docker daemon"
 if ! sudo test -S /var/run/docker.sock || ! docker info >/dev/null 2>&1; then
   sudo pkill -x dockerd >/dev/null 2>&1 || true
   sleep 1
-  sudo bash -c 'nohup dockerd >/tmp/dockerd.log 2>&1 &'
+  # Log to a root-owned path: a snapshot may preserve a stale, other-owned
+  # /tmp/dockerd.log which, under fs.protected_regular, cannot be reopened even
+  # by root and would prevent dockerd from launching.
+  sudo bash -c 'nohup dockerd >/var/log/dockerd.log 2>&1 &'
   for _ in $(seq 1 30); do
     sudo test -S /var/run/docker.sock && break
     sleep 1
@@ -28,11 +31,24 @@ if ! sudo test -S /var/run/docker.sock || ! docker info >/dev/null 2>&1; then
 fi
 # Make the socket usable without sudo for this dev VM.
 sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+# Wait until the daemon actually responds before using it.
+for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
 docker version >/dev/null
 
-echo "==> Starting the local Supabase stack"
-# Idempotent: a no-op if the stack is already running.
-supabase start || supabase start
+echo "==> Starting the local Supabase stack (tolerating a cold Docker daemon)"
+# On a freshly started daemon the db container can take more than a few seconds
+# to become healthy, so retry rather than giving up after one quick attempt.
+for attempt in $(seq 1 6); do
+  if supabase start; then break; fi
+  echo "    supabase start attempt ${attempt} incomplete; waiting for containers..."
+  sleep 10
+done
+# Ensure Postgres is actually accepting connections before touching it.
+for _ in $(seq 1 60); do
+  pg_isready -h 127.0.0.1 -p 54322 -U postgres >/dev/null 2>&1 && break
+  sleep 2
+done
+pg_isready -h 127.0.0.1 -p 54322 -U postgres >/dev/null
 
 echo "==> Applying database schema"
 export PGPASSWORD=postgres

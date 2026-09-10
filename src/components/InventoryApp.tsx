@@ -34,8 +34,41 @@ type Draft = {
   owner: ItemOwner | "";
 };
 
+function readStoredPassword(): string {
+  try {
+    if (typeof window === "undefined") return "";
+    return (sessionStorage.getItem(PASSWORD_KEY) ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredPassword(value: string) {
+  try {
+    const trimmed = value.trim();
+    if (trimmed) sessionStorage.setItem(PASSWORD_KEY, trimmed);
+    else sessionStorage.removeItem(PASSWORD_KEY);
+  } catch {
+    // sessionStorage can throw in private browsing
+  }
+}
+
+function clearStoredPassword() {
+  try {
+    sessionStorage.removeItem(PASSWORD_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Prefer live state, fall back to sessionStorage (avoids race on hydrate). */
+function resolvePassword(statePassword: string): string {
+  return statePassword.trim() || readStoredPassword();
+}
+
 function authHeaders(password: string): HeadersInit {
-  return password ? { "x-inventory-password": password } : {};
+  const pwd = resolvePassword(password);
+  return pwd ? { "x-inventory-password": pwd } : {};
 }
 
 function loadStoredUser(): AppUser | null {
@@ -81,7 +114,7 @@ function isDraftDirty(item: InventoryItem, draft: Draft) {
 export default function InventoryApp() {
   const [passwordRequired, setPasswordRequired] = useState(false);
   const [configured, setConfigured] = useState(true);
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(() => readStoredPassword());
   const [unlocked, setUnlocked] = useState(false);
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -128,7 +161,7 @@ export default function InventoryApp() {
     : null;
 
   useEffect(() => {
-    const saved = sessionStorage.getItem(PASSWORD_KEY) ?? "";
+    const saved = readStoredPassword();
     if (saved) setPassword(saved);
     setCurrentUser(loadStoredUser());
 
@@ -146,22 +179,29 @@ export default function InventoryApp() {
     setLoading(true);
     setError(null);
     try {
+      const effectivePwd = resolvePassword(pwd);
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
       if (categoryFilter) params.set("category", categoryFilter);
       if (ownerFilter) params.set("owner", ownerFilter);
 
       const [catRes, itemRes, userRes, locRes] = await Promise.all([
-        fetch("/api/categories", { headers: authHeaders(pwd) }),
-        fetch(`/api/items?${params}`, { headers: authHeaders(pwd) }),
-        fetch("/api/users", { headers: authHeaders(pwd) }),
-        fetch("/api/locations", { headers: authHeaders(pwd) }),
+        fetch("/api/categories", { headers: authHeaders(effectivePwd) }),
+        fetch(`/api/items?${params}`, { headers: authHeaders(effectivePwd) }),
+        fetch("/api/users", { headers: authHeaders(effectivePwd) }),
+        fetch("/api/locations", { headers: authHeaders(effectivePwd) }),
       ]);
 
       if ([catRes, itemRes, userRes, locRes].some((r) => r.status === 401)) {
-        setUnlocked(false);
-        sessionStorage.removeItem(PASSWORD_KEY);
-        throw new Error("Mot de passe incorrect");
+        // Don't wipe a stored password if we accidentally sent an empty one
+        // (React state not hydrated yet) — that was locking mobile users out.
+        if (effectivePwd) {
+          setUnlocked(false);
+          clearStoredPassword();
+          setPassword("");
+          throw new Error("Mot de passe incorrect");
+        }
+        throw new Error("Session à reconstruire — réessayez");
       }
 
       const [catJson, itemJson, userJson, locJson] = await Promise.all([
@@ -201,6 +241,16 @@ export default function InventoryApp() {
             headers: authHeaders(password),
           });
           const json = await res.json();
+          if (res.status === 401) {
+            const pwd = resolvePassword(password);
+            if (pwd) {
+              setUnlocked(false);
+              clearStoredPassword();
+              setPassword("");
+              throw new Error("Mot de passe incorrect");
+            }
+            throw new Error("Session à reconstruire — réessayez");
+          }
           if (!res.ok) throw new Error(json.error || "Erreur utilisateurs");
           setUsers(json.users ?? []);
         } catch (err) {
@@ -500,17 +550,26 @@ export default function InventoryApp() {
           className="gate-card"
           onSubmit={(e) => {
             e.preventDefault();
-            sessionStorage.setItem(PASSWORD_KEY, password);
+            const trimmed = password.trim();
+            if (!trimmed) {
+              setError("Mot de passe requis");
+              return;
+            }
+            writeStoredPassword(trimmed);
+            setPassword(trimmed);
+            setError(null);
             setUnlocked(true);
           }}
         >
           <p className="brand">MKPK</p>
           <h1>Inventaire</h1>
+          {error && <p className="error">{error}</p>}
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Mot de passe"
+            autoComplete="current-password"
             autoFocus
             required
           />

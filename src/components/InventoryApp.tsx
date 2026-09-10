@@ -1,6 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { Swiper, SwiperSlide } from "swiper/react";
+import type { Swiper as SwiperType } from "swiper";
+import { EffectCoverflow, Keyboard } from "swiper/modules";
+import "swiper/css";
+import "swiper/css/effect-coverflow";
 import type {
   AppUser,
   Category,
@@ -51,7 +56,8 @@ export default function InventoryApp() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const swiperRef = useRef<SwiperType | null>(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -84,6 +90,8 @@ export default function InventoryApp() {
   );
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const [commentingItemId, setCommentingItemId] = useState<string | null>(null);
+
+  const activeItem = items[activeIndex] ?? null;
 
   useEffect(() => {
     const saved = sessionStorage.getItem(PASSWORD_KEY) ?? "";
@@ -136,10 +144,14 @@ export default function InventoryApp() {
       if (!itemRes.ok) throw new Error(itemJson.error || "Erreur inventaire");
       if (!userRes.ok) throw new Error(userJson.error || "Erreur utilisateurs");
 
+      const nextItems: InventoryItem[] = itemJson.items ?? [];
       setCategories(catJson.categories ?? []);
-      setItems(itemJson.items ?? []);
+      setItems(nextItems);
       setUsers(userJson.users ?? []);
       setUnlocked(true);
+      setActiveIndex((i) =>
+        nextItems.length === 0 ? 0 : Math.min(i, nextItems.length - 1),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur de chargement");
     } finally {
@@ -151,7 +163,6 @@ export default function InventoryApp() {
     if (!unlocked || !configured) return;
 
     if (!currentUser) {
-      // Charger les profils pour l'écran de connexion
       void (async () => {
         try {
           const res = await fetch("/api/users", {
@@ -185,27 +196,25 @@ export default function InventoryApp() {
   }, [file]);
 
   useEffect(() => {
-    if (!openId || !currentUser) return;
-    const item = items.find((i) => i.id === openId);
-    if (!item) return;
+    if (!activeItem || !currentUser) return;
 
     setEditDrafts((prev) => ({
       ...prev,
-      [openId]:
-        prev[openId] ?? {
-          name: item.name,
-          description: item.description ?? "",
-          location: item.location ?? "",
-          quantity: item.quantity,
-          category_id: item.category_id ?? "",
+      [activeItem.id]:
+        prev[activeItem.id] ?? {
+          name: activeItem.name,
+          description: activeItem.description ?? "",
+          location: activeItem.location ?? "",
+          quantity: activeItem.quantity,
+          category_id: activeItem.category_id ?? "",
         },
     }));
 
-    if (!commentsByItem[openId]) {
-      void loadComments(openId);
+    if (!commentsByItem[activeItem.id]) {
+      void loadComments(activeItem.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openId, items]);
+  }, [activeItem?.id, currentUser]);
 
   const hasFilters = Boolean(query.trim() || categoryFilter);
 
@@ -230,7 +239,6 @@ export default function InventoryApp() {
   function disconnect() {
     sessionStorage.removeItem(USER_KEY);
     setCurrentUser(null);
-    setOpenId(null);
   }
 
   function resetAddForm() {
@@ -302,7 +310,8 @@ export default function InventoryApp() {
 
       closeAdd();
       await loadData();
-      if (json.item?.id) setOpenId(json.item.id);
+      setActiveIndex(0);
+      requestAnimationFrame(() => swiperRef.current?.slideTo(0));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur d'enregistrement");
     } finally {
@@ -333,8 +342,8 @@ export default function InventoryApp() {
   }
 
   async function saveItem(itemId: string) {
-    const draft = editDrafts[itemId];
-    if (!draft?.name.trim()) return;
+    const current = editDrafts[itemId];
+    if (!current?.name.trim()) return;
 
     setSavingItemId(itemId);
     setError(null);
@@ -346,11 +355,11 @@ export default function InventoryApp() {
           ...authHeaders(password),
         },
         body: JSON.stringify({
-          name: draft.name.trim(),
-          description: draft.description,
-          location: draft.location,
-          quantity: draft.quantity,
-          category_id: draft.category_id || null,
+          name: current.name.trim(),
+          description: current.description,
+          location: current.location,
+          quantity: current.quantity,
+          category_id: current.category_id || null,
         }),
       });
       const json = await res.json();
@@ -417,7 +426,6 @@ export default function InventoryApp() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Suppression impossible");
-      setOpenId(null);
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur suppression");
@@ -470,15 +478,8 @@ export default function InventoryApp() {
           </p>
           {error && <p className="error">{error}</p>}
           <div className="user-list">
-            {users.length === 0 && unlocked ? (
-              <p className="muted">
-                Aucun profil. Créez le vôtre ci-dessous.
-                <br />
-                <small>
-                  Si une erreur apparaît, exécutez{" "}
-                  <code>supabase/users_comments.sql</code> dans Supabase.
-                </small>
-              </p>
+            {users.length === 0 ? (
+              <p className="muted">Aucun profil. Créez le vôtre ci-dessous.</p>
             ) : (
               users.map((user) => (
                 <button
@@ -506,8 +507,11 @@ export default function InventoryApp() {
     );
   }
 
+  const draft = activeItem ? editDrafts[activeItem.id] : null;
+  const comments = activeItem ? (commentsByItem[activeItem.id] ?? []) : [];
+
   return (
-    <main className="app">
+    <main className="app app-coverflow">
       <header className="topbar">
         <div>
           <p className="brand">MKPK</p>
@@ -535,261 +539,292 @@ export default function InventoryApp() {
 
       {error && <p className="error banner">{error}</p>}
 
-      <section className="panel gallery">
-        <div className="toolbar">
-          <div className="filters">
-            <label className="filter-field">
-              <span>Catégorie</span>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                <option value="">Toutes les catégories</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>Recherche</span>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Nom, lieu, description…"
-              />
-            </label>
-            {hasFilters && (
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  setQuery("");
-                  setCategoryFilter("");
-                }}
-              >
-                Réinitialiser
-              </button>
-            )}
-          </div>
+      <section className="filters-bar">
+        <div className="filters">
+          <label className="filter-field">
+            <span>Catégorie</span>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="">Toutes les catégories</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Recherche</span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Nom, lieu, description…"
+            />
+          </label>
+          {hasFilters && (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setQuery("");
+                setCategoryFilter("");
+              }}
+            >
+              Réinitialiser
+            </button>
+          )}
         </div>
+      </section>
 
-        {loading ? (
-          <p className="muted">Chargement…</p>
-        ) : items.length === 0 ? (
-          <div className="empty-state">
-            <p className="muted">
-              {hasFilters
-                ? "Aucun objet ne correspond à ces filtres."
-                : "Aucun objet pour le moment."}
-            </p>
-            {!hasFilters && (
-              <button type="button" onClick={() => setShowAdd(true)}>
-                Ajouter le premier objet
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="accordion">
-            {items.map((item) => {
-              const open = openId === item.id;
-              const draft = editDrafts[item.id];
-              const comments = commentsByItem[item.id] ?? [];
+      {loading ? (
+        <p className="muted stage-msg">Chargement…</p>
+      ) : items.length === 0 ? (
+        <div className="empty-state stage-msg">
+          <p className="muted">
+            {hasFilters
+              ? "Aucun objet ne correspond à ces filtres."
+              : "Aucun objet pour le moment."}
+          </p>
+          {!hasFilters && (
+            <button type="button" onClick={() => setShowAdd(true)}>
+              Ajouter le premier objet
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <section className="coverflow-stage">
+            <button
+              type="button"
+              className="cf-nav prev"
+              aria-label="Photo précédente"
+              onClick={() => swiperRef.current?.slidePrev()}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className="cf-nav next"
+              aria-label="Photo suivante"
+              onClick={() => swiperRef.current?.slideNext()}
+            >
+              ›
+            </button>
 
-              return (
-                <article
-                  key={item.id}
-                  className={`acc-item ${open ? "open" : ""}`}
-                >
-                  <button
-                    type="button"
-                    className="acc-header"
-                    onClick={() => setOpenId(open ? null : item.id)}
-                    aria-expanded={open}
-                  >
+            <Swiper
+              modules={[EffectCoverflow, Keyboard]}
+              effect="coverflow"
+              grabCursor
+              centeredSlides
+              slidesPerView="auto"
+              initialSlide={activeIndex}
+              keyboard={{ enabled: true }}
+              coverflowEffect={{
+                rotate: 28,
+                stretch: 0,
+                depth: 180,
+                modifier: 1.15,
+                slideShadows: true,
+              }}
+              onSwiper={(swiper) => {
+                swiperRef.current = swiper;
+              }}
+              onSlideChange={(swiper) => setActiveIndex(swiper.activeIndex)}
+              className="coverflow-swiper"
+            >
+              {items.map((item) => (
+                <SwiperSlide key={item.id} className="coverflow-slide">
+                  <div className="cf-card">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.image_url} alt="" className="acc-thumb" />
-                    <div className="acc-title">
+                    <img src={item.image_url} alt={item.name} />
+                    <div className="cf-caption">
                       <strong>{item.name}</strong>
                       <span>
                         {item.category?.name ?? "Sans catégorie"}
                         {item.location ? ` · ${item.location}` : ""}
-                        {` · ×${item.quantity}`}
                       </span>
                     </div>
-                    <span className="acc-chevron" aria-hidden>
-                      {open ? "−" : "+"}
-                    </span>
-                  </button>
+                  </div>
+                  <div
+                    className="cf-reflection"
+                    style={{ backgroundImage: `url(${item.image_url})` }}
+                    aria-hidden
+                  />
+                </SwiperSlide>
+              ))}
+            </Swiper>
 
-                  {open && draft && (
-                    <div className="acc-panel">
-                      <div className="acc-media">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.image_url} alt={item.name} />
-                      </div>
+            <p className="cf-hint">
+              Faites glisser · flèches ‹ › · {activeIndex + 1}/{items.length}
+            </p>
+          </section>
 
-                      <div className="acc-edit">
-                        <h3>Modifier</h3>
-                        <div className="fields">
-                          <label>
-                            Nom
-                            <input
-                              value={draft.name}
-                              onChange={(e) =>
-                                setEditDrafts((prev) => ({
-                                  ...prev,
-                                  [item.id]: {
-                                    ...draft,
-                                    name: e.target.value,
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                          <label>
-                            Catégorie
-                            <select
-                              value={draft.category_id}
-                              onChange={(e) =>
-                                setEditDrafts((prev) => ({
-                                  ...prev,
-                                  [item.id]: {
-                                    ...draft,
-                                    category_id: e.target.value,
-                                  },
-                                }))
-                              }
-                            >
-                              <option value="">Sans catégorie</option>
-                              {categories.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Lieu
-                            <input
-                              value={draft.location}
-                              onChange={(e) =>
-                                setEditDrafts((prev) => ({
-                                  ...prev,
-                                  [item.id]: {
-                                    ...draft,
-                                    location: e.target.value,
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                          <label>
-                            Quantité
-                            <input
-                              type="number"
-                              min={0}
-                              value={draft.quantity}
-                              onChange={(e) =>
-                                setEditDrafts((prev) => ({
-                                  ...prev,
-                                  [item.id]: {
-                                    ...draft,
-                                    quantity: Number(e.target.value),
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                          <label className="full">
-                            Description
-                            <textarea
-                              rows={3}
-                              value={draft.description}
-                              onChange={(e) =>
-                                setEditDrafts((prev) => ({
-                                  ...prev,
-                                  [item.id]: {
-                                    ...draft,
-                                    description: e.target.value,
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                        </div>
-                        <div className="modal-actions">
-                          <button
-                            type="button"
-                            onClick={() => void saveItem(item.id)}
-                            disabled={savingItemId === item.id}
-                          >
-                            {savingItemId === item.id
-                              ? "Enregistrement…"
-                              : "Enregistrer"}
-                          </button>
-                          <button
-                            type="button"
-                            className="danger"
-                            onClick={() => void deleteItem(item.id)}
-                          >
-                            Supprimer
-                          </button>
-                        </div>
-                      </div>
+          {activeItem && draft && (
+            <section className="panel detail-panel">
+              <div className="detail-grid">
+                <div className="acc-edit">
+                  <h2>{activeItem.name}</h2>
+                  <p className="muted detail-meta">
+                    {activeItem.category?.name ?? "Sans catégorie"}
+                    {activeItem.location ? ` · ${activeItem.location}` : ""}
+                    {` · ×${activeItem.quantity}`}
+                  </p>
+                  <h3>Modifier</h3>
+                  <div className="fields">
+                    <label>
+                      Nom
+                      <input
+                        value={draft.name}
+                        onChange={(e) =>
+                          setEditDrafts((prev) => ({
+                            ...prev,
+                            [activeItem.id]: {
+                              ...draft,
+                              name: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Catégorie
+                      <select
+                        value={draft.category_id}
+                        onChange={(e) =>
+                          setEditDrafts((prev) => ({
+                            ...prev,
+                            [activeItem.id]: {
+                              ...draft,
+                              category_id: e.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">Sans catégorie</option>
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Lieu
+                      <input
+                        value={draft.location}
+                        onChange={(e) =>
+                          setEditDrafts((prev) => ({
+                            ...prev,
+                            [activeItem.id]: {
+                              ...draft,
+                              location: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Quantité
+                      <input
+                        type="number"
+                        min={0}
+                        value={draft.quantity}
+                        onChange={(e) =>
+                          setEditDrafts((prev) => ({
+                            ...prev,
+                            [activeItem.id]: {
+                              ...draft,
+                              quantity: Number(e.target.value),
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="full">
+                      Description
+                      <textarea
+                        rows={3}
+                        value={draft.description}
+                        onChange={(e) =>
+                          setEditDrafts((prev) => ({
+                            ...prev,
+                            [activeItem.id]: {
+                              ...draft,
+                              description: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="modal-actions">
+                    <button
+                      type="button"
+                      onClick={() => void saveItem(activeItem.id)}
+                      disabled={savingItemId === activeItem.id}
+                    >
+                      {savingItemId === activeItem.id
+                        ? "Enregistrement…"
+                        : "Enregistrer"}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void deleteItem(activeItem.id)}
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
 
-                      <div className="acc-comments">
-                        <h3>Commentaires</h3>
-                        <ul className="comment-list">
-                          {comments.length === 0 ? (
-                            <li className="muted">Aucun commentaire.</li>
-                          ) : (
-                            comments.map((c) => (
-                              <li key={c.id}>
-                                <div className="comment-meta">
-                                  <strong>{c.user?.name ?? "Inconnu"}</strong>
-                                  <span>{formatDate(c.created_at)}</span>
-                                </div>
-                                <p>{c.body}</p>
-                              </li>
-                            ))
-                          )}
-                        </ul>
-                        <div className="comment-form">
-                          <textarea
-                            rows={2}
-                            placeholder={`Commentaire en tant que ${currentUser.name}…`}
-                            value={commentDrafts[item.id] ?? ""}
-                            onChange={(e) =>
-                              setCommentDrafts((prev) => ({
-                                ...prev,
-                                [item.id]: e.target.value,
-                              }))
-                            }
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void addComment(item.id)}
-                            disabled={
-                              commentingItemId === item.id ||
-                              !(commentDrafts[item.id] ?? "").trim()
-                            }
-                          >
-                            {commentingItemId === item.id
-                              ? "Envoi…"
-                              : "Publier"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                <div className="acc-comments">
+                  <h3>Commentaires</h3>
+                  <ul className="comment-list">
+                    {comments.length === 0 ? (
+                      <li className="muted">Aucun commentaire.</li>
+                    ) : (
+                      comments.map((c) => (
+                        <li key={c.id}>
+                          <div className="comment-meta">
+                            <strong>{c.user?.name ?? "Inconnu"}</strong>
+                            <span>{formatDate(c.created_at)}</span>
+                          </div>
+                          <p>{c.body}</p>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                  <div className="comment-form">
+                    <textarea
+                      rows={2}
+                      placeholder={`Commentaire en tant que ${currentUser.name}…`}
+                      value={commentDrafts[activeItem.id] ?? ""}
+                      onChange={(e) =>
+                        setCommentDrafts((prev) => ({
+                          ...prev,
+                          [activeItem.id]: e.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void addComment(activeItem.id)}
+                      disabled={
+                        commentingItemId === activeItem.id ||
+                        !(commentDrafts[activeItem.id] ?? "").trim()
+                      }
+                    >
+                      {commentingItemId === activeItem.id ? "Envoi…" : "Publier"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+        </>
+      )}
 
       {showAdd && (
         <div className="modal" onClick={closeAdd}>

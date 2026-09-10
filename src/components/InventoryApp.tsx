@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
 import type { Swiper as SwiperType } from "swiper";
-import { EffectCoverflow, Keyboard } from "swiper/modules";
+import { EffectCoverflow, Keyboard, Mousewheel } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/effect-coverflow";
 import type {
@@ -614,13 +614,18 @@ export default function InventoryApp() {
             </button>
 
             <Swiper
-              modules={[EffectCoverflow, Keyboard]}
+              modules={[EffectCoverflow, Keyboard, Mousewheel]}
               effect="coverflow"
               grabCursor
               centeredSlides
               slidesPerView="auto"
               initialSlide={activeIndex}
               keyboard={{ enabled: true }}
+              mousewheel={{
+                forceToAxis: true,
+                sensitivity: 1,
+                releaseOnEdges: true,
+              }}
               coverflowEffect={{
                 rotate: 28,
                 stretch: 0,
@@ -657,7 +662,7 @@ export default function InventoryApp() {
             </Swiper>
 
             <p className="cf-hint">
-              Faites glisser · flèches ‹ › · {activeIndex + 1}/{items.length}
+              Scroll / glisser · flèches ‹ › · {activeIndex + 1}/{items.length}
             </p>
           </section>
 

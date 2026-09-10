@@ -22,6 +22,7 @@ export default function InventoryApp() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<InventoryItem | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -107,6 +108,22 @@ export default function InventoryApp() {
 
   const hasFilters = Boolean(query.trim() || categoryFilter);
 
+  function resetAddForm() {
+    setName("");
+    setDescription("");
+    setLocation("");
+    setQuantity(1);
+    setCategoryId("");
+    setFile(null);
+    setNewCategoryName("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function closeAdd() {
+    setShowAdd(false);
+    resetAddForm();
+  }
+
   function unlock(e: FormEvent) {
     e.preventDefault();
     sessionStorage.setItem(PASSWORD_KEY, password);
@@ -136,13 +153,7 @@ export default function InventoryApp() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Échec de l'enregistrement");
 
-      setName("");
-      setDescription("");
-      setLocation("");
-      setQuantity(1);
-      setCategoryId("");
-      setFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      closeAdd();
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur d'enregistrement");
@@ -151,8 +162,7 @@ export default function InventoryApp() {
     }
   }
 
-  async function addCategory(e: FormEvent) {
-    e.preventDefault();
+  async function addCategory() {
     if (!newCategoryName.trim()) return;
     setError(null);
     try {
@@ -167,6 +177,7 @@ export default function InventoryApp() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Impossible d'ajouter la catégorie");
       setNewCategoryName("");
+      setCategoryId(json.category?.id ?? "");
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur catégorie");
@@ -227,114 +238,25 @@ export default function InventoryApp() {
 
   return (
     <main className="app">
-      <header className="hero">
+      <header className="topbar">
         <div>
           <p className="brand">MKPK</p>
-          <h1>Inventaire photo</h1>
-          <p className="muted">
-            Uploadez, classez et retrouvez vos objets en un coup d’œil.
-          </p>
+          <h1>Inventaire</h1>
         </div>
-        <div className="stat">
-          <strong>{items.length}</strong>
-          <span>objet{items.length > 1 ? "s" : ""}</span>
+        <div className="topbar-actions">
+          <span className="count">
+            {items.length} objet{items.length > 1 ? "s" : ""}
+          </span>
+          <button type="button" className="add-btn" onClick={() => setShowAdd(true)}>
+            + Ajouter
+          </button>
         </div>
       </header>
 
       {error && <p className="error banner">{error}</p>}
 
-      <section className="panel upload">
-        <h2>Ajouter un objet</h2>
-        <form onSubmit={onSubmit} className="upload-form">
-          <label
-            className={`dropzone ${preview ? "has-preview" : ""}`}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const dropped = e.dataTransfer.files?.[0];
-              if (dropped?.type.startsWith("image/")) setFile(dropped);
-            }}
-          >
-            {preview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={preview} alt="Aperçu" />
-            ) : (
-              <span>
-                Glissez une photo ici
-                <br />
-                ou cliquez pour choisir
-              </span>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              required
-            />
-          </label>
-
-          <div className="fields">
-            <label>
-              Nom
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ex. Canapé 3 places"
-                required
-              />
-            </label>
-            <label>
-              Catégorie
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-              >
-                <option value="">Sans catégorie</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Lieu
-              <input
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Ex. Salon, Cave, Garage"
-              />
-            </label>
-            <label>
-              Quantité
-              <input
-                type="number"
-                min={0}
-                value={quantity}
-                onChange={(e) => setQuantity(Number(e.target.value))}
-              />
-            </label>
-            <label className="full">
-              Description
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Notes, état, numéro de série…"
-                rows={3}
-              />
-            </label>
-            <button type="submit" disabled={saving || !file || !name.trim()}>
-              {saving ? "Enregistrement…" : "Enregistrer"}
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <section className="panel">
+      <section className="panel gallery">
         <div className="toolbar">
-          <h2>Galerie</h2>
           <div className="filters">
             <label className="filter-field">
               <span>Catégorie</span>
@@ -373,23 +295,21 @@ export default function InventoryApp() {
           </div>
         </div>
 
-        <form className="new-cat" onSubmit={addCategory}>
-          <input
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            placeholder="Nouvelle catégorie"
-          />
-          <button type="submit">Ajouter</button>
-        </form>
-
         {loading ? (
           <p className="muted">Chargement…</p>
         ) : items.length === 0 ? (
-          <p className="muted empty">
-            {hasFilters
-              ? "Aucun objet ne correspond à ces filtres."
-              : "Aucun objet pour le moment."}
-          </p>
+          <div className="empty-state">
+            <p className="muted">
+              {hasFilters
+                ? "Aucun objet ne correspond à ces filtres."
+                : "Aucun objet pour le moment."}
+            </p>
+            {!hasFilters && (
+              <button type="button" onClick={() => setShowAdd(true)}>
+                Ajouter le premier objet
+              </button>
+            )}
+          </div>
         ) : (
           <div className="grid">
             {items.map((item) => (
@@ -414,9 +334,122 @@ export default function InventoryApp() {
         )}
       </section>
 
+      {showAdd && (
+        <div className="modal" onClick={closeAdd}>
+          <article className="modal-add" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Ajouter un objet</h2>
+              <button type="button" className="ghost close-x" onClick={closeAdd}>
+                Fermer
+              </button>
+            </div>
+            <form onSubmit={onSubmit} className="upload-form">
+              <label
+                className={`dropzone ${preview ? "has-preview" : ""}`}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const dropped = e.dataTransfer.files?.[0];
+                  if (dropped?.type.startsWith("image/")) setFile(dropped);
+                }}
+              >
+                {preview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={preview} alt="Aperçu" />
+                ) : (
+                  <span>
+                    Glissez une photo ici
+                    <br />
+                    ou cliquez pour choisir
+                  </span>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  required
+                />
+              </label>
+
+              <div className="fields">
+                <label>
+                  Nom
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ex. Canapé 3 places"
+                    required
+                    autoFocus
+                  />
+                </label>
+                <label>
+                  Catégorie
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                  >
+                    <option value="">Sans catégorie</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Lieu
+                  <input
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Ex. Salon, Cave, Garage"
+                  />
+                </label>
+                <label>
+                  Quantité
+                  <input
+                    type="number"
+                    min={0}
+                    value={quantity}
+                    onChange={(e) => setQuantity(Number(e.target.value))}
+                  />
+                </label>
+                <label className="full">
+                  Description
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Notes, état, numéro de série…"
+                    rows={3}
+                  />
+                </label>
+                <div className="new-cat full">
+                  <input
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="Nouvelle catégorie"
+                  />
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => void addCategory()}
+                  >
+                    Créer
+                  </button>
+                </div>
+                <button type="submit" disabled={saving || !file || !name.trim()}>
+                  {saving ? "Enregistrement…" : "Enregistrer"}
+                </button>
+              </div>
+            </form>
+          </article>
+        </div>
+      )}
+
       {selected && (
         <div className="modal" onClick={() => setSelected(null)}>
-          <article onClick={(e) => e.stopPropagation()}>
+          <article className="modal-detail" onClick={(e) => e.stopPropagation()}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={selected.image_url} alt={selected.name} />
             <div className="modal-body">

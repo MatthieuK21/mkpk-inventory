@@ -253,9 +253,12 @@ button:disabled {
 
 .chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.5rem;
   margin: 1rem 0;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chip {
@@ -263,7 +266,9 @@ button:disabled {
   color: var(--ink);
   border: 1px solid var(--line);
   padding: 0.45rem 0.85rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .chip em {

@@ -626,10 +626,10 @@ export default function InventoryApp() {
             keyboard={{ enabled: true }}
             mousewheel={{ forceToAxis: true, sensitivity: 1, releaseOnEdges: true }}
             coverflowEffect={{
-              rotate: 24,
-              stretch: 0,
-              depth: 160,
-              modifier: 1.1,
+              rotate: 18,
+              stretch: -12,
+              depth: 120,
+              modifier: 1,
               slideShadows: true,
             }}
             onSwiper={(swiper) => {

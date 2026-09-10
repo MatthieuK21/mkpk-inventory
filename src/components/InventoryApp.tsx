@@ -57,6 +57,7 @@ export default function InventoryApp() {
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const swiperRef = useRef<SwiperType | null>(null);
 
   const [name, setName] = useState("");
@@ -91,7 +92,9 @@ export default function InventoryApp() {
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const [commentingItemId, setCommentingItemId] = useState<string | null>(null);
 
-  const activeItem = items[activeIndex] ?? null;
+  const detailItem = detailId
+    ? (items.find((item) => item.id === detailId) ?? null)
+    : null;
 
   useEffect(() => {
     const saved = sessionStorage.getItem(PASSWORD_KEY) ?? "";
@@ -196,27 +199,35 @@ export default function InventoryApp() {
   }, [file]);
 
   useEffect(() => {
-    if (!activeItem || !currentUser) return;
+    if (!detailItem || !currentUser) return;
 
     setEditDrafts((prev) => ({
       ...prev,
-      [activeItem.id]:
-        prev[activeItem.id] ?? {
-          name: activeItem.name,
-          description: activeItem.description ?? "",
-          location: activeItem.location ?? "",
-          quantity: activeItem.quantity,
-          category_id: activeItem.category_id ?? "",
+      [detailItem.id]:
+        prev[detailItem.id] ?? {
+          name: detailItem.name,
+          description: detailItem.description ?? "",
+          location: detailItem.location ?? "",
+          quantity: detailItem.quantity,
+          category_id: detailItem.category_id ?? "",
         },
     }));
 
-    if (!commentsByItem[activeItem.id]) {
-      void loadComments(activeItem.id);
+    if (!commentsByItem[detailItem.id]) {
+      void loadComments(detailItem.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeItem?.id, currentUser]);
+  }, [detailItem?.id, currentUser]);
 
   const hasFilters = Boolean(query.trim() || categoryFilter);
+
+  function openDetail(itemId: string) {
+    setDetailId(itemId);
+  }
+
+  function closeDetail() {
+    setDetailId(null);
+  }
 
   async function loadComments(itemId: string) {
     try {
@@ -426,6 +437,7 @@ export default function InventoryApp() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Suppression impossible");
+      setDetailId(null);
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur suppression");
@@ -507,8 +519,8 @@ export default function InventoryApp() {
     );
   }
 
-  const draft = activeItem ? editDrafts[activeItem.id] : null;
-  const comments = activeItem ? (commentsByItem[activeItem.id] ?? []) : [];
+  const draft = detailItem ? editDrafts[detailItem.id] : null;
+  const comments = detailItem ? (commentsByItem[detailItem.id] ?? []) : [];
 
   return (
     <main className="app app-coverflow">
@@ -637,11 +649,21 @@ export default function InventoryApp() {
                 swiperRef.current = swiper;
               }}
               onSlideChange={(swiper) => setActiveIndex(swiper.activeIndex)}
+              onClick={(swiper) => {
+                const idx = swiper.clickedIndex;
+                if (typeof idx === "number" && items[idx]) {
+                  openDetail(items[idx].id);
+                }
+              }}
               className="coverflow-swiper"
             >
               {items.map((item) => (
                 <SwiperSlide key={item.id} className="coverflow-slide">
-                  <div className="cf-card">
+                  <button
+                    type="button"
+                    className="cf-card"
+                    onClick={() => openDetail(item.id)}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={item.image_url} alt={item.name} />
                     <div className="cf-caption">
@@ -651,7 +673,7 @@ export default function InventoryApp() {
                         {item.location ? ` · ${item.location}` : ""}
                       </span>
                     </div>
-                  </div>
+                  </button>
                   <div
                     className="cf-reflection"
                     style={{ backgroundImage: `url(${item.image_url})` }}
@@ -662,173 +684,194 @@ export default function InventoryApp() {
             </Swiper>
 
             <p className="cf-hint">
-              Scroll / glisser · flèches ‹ › · {activeIndex + 1}/{items.length}
+              Scroll / glisser · clic pour éditer · {activeIndex + 1}/
+              {items.length}
             </p>
           </section>
+        </>
+      )}
 
-          {activeItem && draft && (
-            <section className="panel detail-panel">
-              <div className="detail-grid">
-                <div className="acc-edit">
-                  <h2>{activeItem.name}</h2>
-                  <p className="muted detail-meta">
-                    {activeItem.category?.name ?? "Sans catégorie"}
-                    {activeItem.location ? ` · ${activeItem.location}` : ""}
-                    {` · ×${activeItem.quantity}`}
-                  </p>
-                  <h3>Modifier</h3>
-                  <div className="fields">
-                    <label>
-                      Nom
-                      <input
-                        value={draft.name}
-                        onChange={(e) =>
-                          setEditDrafts((prev) => ({
-                            ...prev,
-                            [activeItem.id]: {
-                              ...draft,
-                              name: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Catégorie
-                      <select
-                        value={draft.category_id}
-                        onChange={(e) =>
-                          setEditDrafts((prev) => ({
-                            ...prev,
-                            [activeItem.id]: {
-                              ...draft,
-                              category_id: e.target.value,
-                            },
-                          }))
-                        }
-                      >
-                        <option value="">Sans catégorie</option>
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Lieu
-                      <input
-                        value={draft.location}
-                        onChange={(e) =>
-                          setEditDrafts((prev) => ({
-                            ...prev,
-                            [activeItem.id]: {
-                              ...draft,
-                              location: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Quantité
-                      <input
-                        type="number"
-                        min={0}
-                        value={draft.quantity}
-                        onChange={(e) =>
-                          setEditDrafts((prev) => ({
-                            ...prev,
-                            [activeItem.id]: {
-                              ...draft,
-                              quantity: Number(e.target.value),
-                            },
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="full">
-                      Description
-                      <textarea
-                        rows={3}
-                        value={draft.description}
-                        onChange={(e) =>
-                          setEditDrafts((prev) => ({
-                            ...prev,
-                            [activeItem.id]: {
-                              ...draft,
-                              description: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      onClick={() => void saveItem(activeItem.id)}
-                      disabled={savingItemId === activeItem.id}
-                    >
-                      {savingItemId === activeItem.id
-                        ? "Enregistrement…"
-                        : "Enregistrer"}
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => void deleteItem(activeItem.id)}
-                    >
-                      Supprimer
-                    </button>
-                  </div>
-                </div>
+      {detailItem && draft && (
+        <div className="modal" onClick={closeDetail}>
+          <article
+            className="modal-detail-edit"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>{detailItem.name}</h2>
+              <button
+                type="button"
+                className="ghost close-x"
+                onClick={closeDetail}
+              >
+                Fermer
+              </button>
+            </div>
 
-                <div className="acc-comments">
-                  <h3>Commentaires</h3>
-                  <ul className="comment-list">
-                    {comments.length === 0 ? (
-                      <li className="muted">Aucun commentaire.</li>
-                    ) : (
-                      comments.map((c) => (
-                        <li key={c.id}>
-                          <div className="comment-meta">
-                            <strong>{c.user?.name ?? "Inconnu"}</strong>
-                            <span>{formatDate(c.created_at)}</span>
-                          </div>
-                          <p>{c.body}</p>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                  <div className="comment-form">
-                    <textarea
-                      rows={2}
-                      placeholder={`Commentaire en tant que ${currentUser.name}…`}
-                      value={commentDrafts[activeItem.id] ?? ""}
+            <div className="detail-grid">
+              <div className="detail-photo">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={detailItem.image_url} alt={detailItem.name} />
+              </div>
+
+              <div className="acc-edit">
+                <p className="muted detail-meta">
+                  {detailItem.category?.name ?? "Sans catégorie"}
+                  {detailItem.location ? ` · ${detailItem.location}` : ""}
+                  {` · ×${detailItem.quantity}`}
+                </p>
+                <h3>Modifier</h3>
+                <div className="fields">
+                  <label>
+                    Nom
+                    <input
+                      value={draft.name}
                       onChange={(e) =>
-                        setCommentDrafts((prev) => ({
+                        setEditDrafts((prev) => ({
                           ...prev,
-                          [activeItem.id]: e.target.value,
+                          [detailItem.id]: {
+                            ...draft,
+                            name: e.target.value,
+                          },
                         }))
                       }
                     />
-                    <button
-                      type="button"
-                      onClick={() => void addComment(activeItem.id)}
-                      disabled={
-                        commentingItemId === activeItem.id ||
-                        !(commentDrafts[activeItem.id] ?? "").trim()
+                  </label>
+                  <label>
+                    Catégorie
+                    <select
+                      value={draft.category_id}
+                      onChange={(e) =>
+                        setEditDrafts((prev) => ({
+                          ...prev,
+                          [detailItem.id]: {
+                            ...draft,
+                            category_id: e.target.value,
+                          },
+                        }))
                       }
                     >
-                      {commentingItemId === activeItem.id ? "Envoi…" : "Publier"}
-                    </button>
-                  </div>
+                      <option value="">Sans catégorie</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Lieu
+                    <input
+                      value={draft.location}
+                      onChange={(e) =>
+                        setEditDrafts((prev) => ({
+                          ...prev,
+                          [detailItem.id]: {
+                            ...draft,
+                            location: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Quantité
+                    <input
+                      type="number"
+                      min={0}
+                      value={draft.quantity}
+                      onChange={(e) =>
+                        setEditDrafts((prev) => ({
+                          ...prev,
+                          [detailItem.id]: {
+                            ...draft,
+                            quantity: Number(e.target.value),
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="full">
+                    Description
+                    <textarea
+                      rows={3}
+                      value={draft.description}
+                      onChange={(e) =>
+                        setEditDrafts((prev) => ({
+                          ...prev,
+                          [detailItem.id]: {
+                            ...draft,
+                            description: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    onClick={() => void saveItem(detailItem.id)}
+                    disabled={savingItemId === detailItem.id}
+                  >
+                    {savingItemId === detailItem.id
+                      ? "Enregistrement…"
+                      : "Enregistrer"}
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => void deleteItem(detailItem.id)}
+                  >
+                    Supprimer
+                  </button>
                 </div>
               </div>
-            </section>
-          )}
-        </>
+
+              <div className="acc-comments">
+                <h3>Commentaires</h3>
+                <ul className="comment-list">
+                  {comments.length === 0 ? (
+                    <li className="muted">Aucun commentaire.</li>
+                  ) : (
+                    comments.map((c) => (
+                      <li key={c.id}>
+                        <div className="comment-meta">
+                          <strong>{c.user?.name ?? "Inconnu"}</strong>
+                          <span>{formatDate(c.created_at)}</span>
+                        </div>
+                        <p>{c.body}</p>
+                      </li>
+                    ))
+                  )}
+                </ul>
+                <div className="comment-form">
+                  <textarea
+                    rows={2}
+                    placeholder={`Commentaire en tant que ${currentUser.name}…`}
+                    value={commentDrafts[detailItem.id] ?? ""}
+                    onChange={(e) =>
+                      setCommentDrafts((prev) => ({
+                        ...prev,
+                        [detailItem.id]: e.target.value,
+                      }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void addComment(detailItem.id)}
+                    disabled={
+                      commentingItemId === detailItem.id ||
+                      !(commentDrafts[detailItem.id] ?? "").trim()
+                    }
+                  >
+                    {commentingItemId === detailItem.id ? "Envoi…" : "Publier"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
       )}
 
       {showAdd && (

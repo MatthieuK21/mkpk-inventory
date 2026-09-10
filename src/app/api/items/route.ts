@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPassword, unauthorized } from "@/lib/auth";
+import { parsePrice, recordItemHistory } from "@/lib/history";
 import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
@@ -54,6 +55,8 @@ export async function POST(request: NextRequest) {
     const location = String(form.get("location") ?? "").trim();
     const quantity = Number(form.get("quantity") ?? 1);
     const categoryId = String(form.get("category_id") ?? "").trim() || null;
+    const estimatedPrice = parsePrice(form.get("estimated_price"));
+    const userId = String(form.get("user_id") ?? "").trim() || null;
 
     if (!name) {
       return NextResponse.json({ error: "Le nom est obligatoire" }, { status: 400 });
@@ -95,6 +98,7 @@ export async function POST(request: NextRequest) {
         location: location || null,
         quantity: Number.isFinite(quantity) && quantity >= 0 ? quantity : 1,
         category_id: categoryId,
+        estimated_price: estimatedPrice,
         image_path: imagePath,
       })
       .select("*, category:categories(*)")
@@ -104,6 +108,18 @@ export async function POST(request: NextRequest) {
       await supabase.storage.from("inventory").remove([imagePath]);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    await recordItemHistory(supabase, {
+      itemId: data.id,
+      userId,
+      action: "created",
+      changes: {
+        name: { from: null, to: data.name },
+        ...(estimatedPrice !== null
+          ? { estimated_price: { from: null, to: estimatedPrice } }
+          : {}),
+      },
+    });
 
     return NextResponse.json(
       {

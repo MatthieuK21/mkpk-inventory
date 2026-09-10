@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPassword, unauthorized } from "@/lib/auth";
+import {
+  buildChanges,
+  parsePrice,
+  recordItemHistory,
+} from "@/lib/history";
 import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
 
 type Params = { params: Promise<{ id: string }> };
@@ -10,6 +15,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   try {
     const { id } = await params;
     const body = await request.json();
+    const userId =
+      typeof body.user_id === "string" && body.user_id.trim()
+        ? body.user_id.trim()
+        : null;
 
     const updates: Record<string, unknown> = {};
     if (typeof body.name === "string") updates.name = body.name.trim();
@@ -23,12 +32,28 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if ("category_id" in body) {
       updates.category_id = body.category_id || null;
     }
+    if ("estimated_price" in body) {
+      updates.estimated_price = parsePrice(body.estimated_price);
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "Rien à mettre à jour" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
+    const { data: before, error: beforeError } = await supabase
+      .from("items")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (beforeError || !before) {
+      return NextResponse.json(
+        { error: beforeError?.message || "Objet introuvable" },
+        { status: 404 },
+      );
+    }
+
     const { data, error } = await supabase
       .from("items")
       .update(updates)
@@ -38,6 +63,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const changes = buildChanges(
+      before as Record<string, unknown>,
+      data as Record<string, unknown>,
+      Object.keys(updates),
+    );
+
+    if (Object.keys(changes).length > 0) {
+      await recordItemHistory(supabase, {
+        itemId: id,
+        userId,
+        action: "updated",
+        changes,
+      });
     }
 
     return NextResponse.json({

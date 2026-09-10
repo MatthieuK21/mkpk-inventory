@@ -11,7 +11,13 @@ import type {
   Category,
   InventoryItem,
   ItemComment,
+  ItemHistoryEntry,
 } from "@/lib/types";
+import {
+  fieldLabel,
+  formatHistoryValue,
+  formatPrice,
+} from "@/lib/history";
 
 const PASSWORD_KEY = "mkpk-inventory-password";
 const USER_KEY = "mkpk-inventory-user";
@@ -65,6 +71,7 @@ export default function InventoryApp() {
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [quantity, setQuantity] = useState(1);
+  const [estimatedPrice, setEstimatedPrice] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -81,11 +88,15 @@ export default function InventoryApp() {
         location: string;
         quantity: number;
         category_id: string;
+        estimated_price: string;
       }
     >
   >({});
   const [commentsByItem, setCommentsByItem] = useState<
     Record<string, ItemComment[]>
+  >({});
+  const [historyByItem, setHistoryByItem] = useState<
+    Record<string, ItemHistoryEntry[]>
   >({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
     {},
@@ -216,11 +227,19 @@ export default function InventoryApp() {
           location: detailItem.location ?? "",
           quantity: detailItem.quantity,
           category_id: detailItem.category_id ?? "",
+          estimated_price:
+            detailItem.estimated_price === null ||
+            detailItem.estimated_price === undefined
+              ? ""
+              : String(detailItem.estimated_price),
         },
     }));
 
     if (!commentsByItem[detailItem.id]) {
       void loadComments(detailItem.id);
+    }
+    if (!historyByItem[detailItem.id]) {
+      void loadHistory(detailItem.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailItem?.id, currentUser]);
@@ -248,6 +267,19 @@ export default function InventoryApp() {
     }
   }
 
+  async function loadHistory(itemId: string) {
+    try {
+      const res = await fetch(`/api/items/${itemId}/history`, {
+        headers: authHeaders(password),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erreur historique");
+      setHistoryByItem((prev) => ({ ...prev, [itemId]: json.history ?? [] }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur historique");
+    }
+  }
+
   function connectAs(user: AppUser) {
     sessionStorage.setItem(USER_KEY, JSON.stringify(user));
     setCurrentUser(user);
@@ -263,6 +295,7 @@ export default function InventoryApp() {
     setDescription("");
     setLocation("");
     setQuantity(1);
+    setEstimatedPrice("");
     setCategoryId("");
     setFile(null);
     setNewCategoryName("");
@@ -315,6 +348,10 @@ export default function InventoryApp() {
       form.set("description", description.trim());
       form.set("location", location.trim());
       form.set("quantity", String(quantity));
+      if (estimatedPrice.trim()) {
+        form.set("estimated_price", estimatedPrice.trim());
+      }
+      if (currentUser) form.set("user_id", currentUser.id);
       if (categoryId) form.set("category_id", categoryId);
 
       const res = await fetch("/api/items", {
@@ -377,6 +414,8 @@ export default function InventoryApp() {
           location: current.location,
           quantity: current.quantity,
           category_id: current.category_id || null,
+          estimated_price: current.estimated_price,
+          user_id: currentUser?.id ?? null,
         }),
       });
       const json = await res.json();
@@ -393,8 +432,14 @@ export default function InventoryApp() {
           location: json.item.location ?? "",
           quantity: json.item.quantity,
           category_id: json.item.category_id ?? "",
+          estimated_price:
+            json.item.estimated_price === null ||
+            json.item.estimated_price === undefined
+              ? ""
+              : String(json.item.estimated_price),
         },
       }));
+      await loadHistory(itemId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur de mise à jour");
     } finally {
@@ -527,6 +572,7 @@ export default function InventoryApp() {
 
   const draft = detailItem ? editDrafts[detailItem.id] : null;
   const comments = detailItem ? (commentsByItem[detailItem.id] ?? []) : [];
+  const history = detailItem ? (historyByItem[detailItem.id] ?? []) : [];
 
   return (
     <main className="app app-coverflow">
@@ -731,6 +777,9 @@ export default function InventoryApp() {
                   {detailItem.category?.name ?? "Sans catégorie"}
                   {detailItem.location ? ` · ${detailItem.location}` : ""}
                   {` · ×${detailItem.quantity}`}
+                  {detailItem.estimated_price != null
+                    ? ` · ${formatPrice(detailItem.estimated_price)}`
+                    : ""}
                 </p>
                 <h3>Modifier</h3>
                 <div className="fields">
@@ -804,6 +853,25 @@ export default function InventoryApp() {
                           },
                         }))
                       }
+                    />
+                  </label>
+                  <label>
+                    Prix estimé (€)
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={draft.estimated_price}
+                      onChange={(e) =>
+                        setEditDrafts((prev) => ({
+                          ...prev,
+                          [detailItem.id]: {
+                            ...draft,
+                            estimated_price: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Ex. 150"
                     />
                   </label>
                   <label className="full">
@@ -883,6 +951,44 @@ export default function InventoryApp() {
                     {commentingItemId === detailItem.id ? "Envoi…" : "Publier"}
                   </button>
                 </div>
+              </div>
+
+              <div className="acc-history">
+                <h3>Historique des modifications</h3>
+                <ul className="history-list">
+                  {history.length === 0 ? (
+                    <li className="muted">Aucune modification enregistrée.</li>
+                  ) : (
+                    history.map((entry) => (
+                      <li key={entry.id}>
+                        <div className="comment-meta">
+                          <strong>
+                            {entry.action === "created"
+                              ? "Création"
+                              : "Modification"}
+                            {" · "}
+                            {entry.user?.name ?? "Inconnu"}
+                          </strong>
+                          <span>{formatDate(entry.created_at)}</span>
+                        </div>
+                        {entry.action === "updated" &&
+                        Object.keys(entry.changes ?? {}).length > 0 ? (
+                          <ul className="history-changes">
+                            {Object.entries(entry.changes).map(([key, change]) => (
+                              <li key={key}>
+                                <strong>{fieldLabel(key)}</strong> :{" "}
+                                {formatHistoryValue(key, change.from)} →{" "}
+                                {formatHistoryValue(key, change.to)}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="muted">Objet ajouté à l’inventaire.</p>
+                        )}
+                      </li>
+                    ))
+                  )}
+                </ul>
               </div>
             </div>
           </article>
@@ -970,6 +1076,17 @@ export default function InventoryApp() {
                     min={0}
                     value={quantity}
                     onChange={(e) => setQuantity(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  Prix estimé (€)
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={estimatedPrice}
+                    onChange={(e) => setEstimatedPrice(e.target.value)}
+                    placeholder="Ex. 150"
                   />
                 </label>
                 <label className="full">

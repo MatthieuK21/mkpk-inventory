@@ -20,12 +20,24 @@ export type ItemComment = {
   user?: AppUser | null;
 };
 
+export type ItemHistoryEntry = {
+  id: string;
+  item_id: string;
+  user_id: string | null;
+  action: "created" | "updated";
+  changes: Record<string, { from: unknown; to: unknown }>;
+  created_at: string;
+  user?: AppUser | null;
+  change_labels?: string[];
+};
+
 export type InventoryItem = {
   id: string;
   name: string;
   description: string | null;
   location: string | null;
   quantity: number;
+  estimated_price: number | null;
   category_id: string | null;
   image_path: string;
   created_at: string;
@@ -39,5 +51,6 @@ export type ItemInput = {
   description?: string;
   location?: string;
   quantity?: number;
+  estimated_price?: number | null;
   category_id?: string | null;
 };

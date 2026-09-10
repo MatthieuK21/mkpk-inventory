@@ -149,10 +149,37 @@ code {
   gap: 1.25rem;
 }
 
-.detail-grid .acc-comments {
+.detail-grid .acc-comments,
+.detail-grid .acc-history {
   grid-column: 1 / -1;
   padding-top: 0.75rem;
   border-top: 1px solid var(--line);
+}
+
+.acc-history {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.history-list > li {
+  background: #f4f7f5;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+}
+
+.history-changes {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--ink);
+  font-size: 0.9rem;
 }
 
 .detail-meta {

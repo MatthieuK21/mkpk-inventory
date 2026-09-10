@@ -1,15 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Manrope } from "next/font/google";
+import { Manrope } from "next/font/google";
 import "./globals.css";
 
-const display = Fraunces({
-  variable: "--font-display",
+const font = Manrope({
   subsets: ["latin"],
-});
-
-const body = Manrope({
-  variable: "--font-body",
-  subsets: ["latin"],
+  variable: "--font-sans",
 });
 
 export const metadata: Metadata = {
@@ -26,8 +21,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="fr" className={`${display.variable} ${body.variable} h-full`}>
-      <body className="min-h-full antialiased">{children}</body>
+    <html lang="fr" className={`${font.variable} h-full`}>
+      <body className={`${font.className} min-h-full antialiased`}>
+        {children}
+      </body>
     </html>
   );
 }

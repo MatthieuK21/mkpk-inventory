@@ -539,45 +539,22 @@ export default function InventoryApp() {
   }
 
   return (
-    <main className="app app-simple">
-      <header className="topbar-simple">
-        <div>
-          <p className="brand">MKPK</p>
-          <p className="user-line">
-            {currentUser.name}
-            <button type="button" className="linkish" onClick={disconnect}>
-              changer
-            </button>
-          </p>
-        </div>
-        <div className="status-pill" aria-live="polite">
-          {saveStatus === "saving"
-            ? "Enregistrement…"
-            : saveStatus === "saved"
-              ? "Enregistré"
-              : `${items.length} objet${items.length > 1 ? "s" : ""}`}
-        </div>
-      </header>
-
-      {error && <p className="error banner">{error}</p>}
-
-      <datalist id="known-locations">
-        {locations.map((loc) => (
-          <option key={loc} value={loc} />
-        ))}
-      </datalist>
-
-      <section className="filters-simple">
+    <main className="app-shell">
+      <header className="menubar">
+        <span className="brand menubar-brand">MKPK</span>
         <input
+          className="menubar-search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Rechercher…"
         />
         <select
+          className="menubar-select"
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
+          aria-label="Catégorie"
         >
-          <option value="">Toutes catégories</option>
+          <option value="">Catégories</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -585,26 +562,46 @@ export default function InventoryApp() {
           ))}
         </select>
         <select
+          className="menubar-select"
           value={ownerFilter}
           onChange={(e) => setOwnerFilter(e.target.value)}
+          aria-label="Propriétaire"
         >
-          <option value="">Tous propriétaires</option>
+          <option value="">Propriétaires</option>
           {ITEM_OWNERS.map((o) => (
             <option key={o} value={o}>
               {o}
             </option>
           ))}
         </select>
-      </section>
+        <span className="menubar-meta" aria-live="polite">
+          {saveStatus === "saving"
+            ? "…"
+            : saveStatus === "saved"
+              ? "OK"
+              : items.length}
+        </span>
+        <button type="button" className="menubar-user" onClick={disconnect}>
+          {currentUser.name}
+        </button>
+      </header>
+
+      {error && <p className="error banner menubar-error">{error}</p>}
+
+      <datalist id="known-locations">
+        {locations.map((loc) => (
+          <option key={loc} value={loc} />
+        ))}
+      </datalist>
 
       {loading ? (
-        <p className="muted stage-msg">Chargement…</p>
+        <p className="muted stage-msg stage-fill">Chargement…</p>
       ) : items.length === 0 ? (
-        <div className="empty-state stage-msg">
+        <div className="empty-state stage-fill">
           <p className="muted">Aucun objet. Prenez une photo pour commencer.</p>
         </div>
       ) : (
-        <section className="coverflow-stage">
+        <section className="coverflow-stage stage-fill">
           <Swiper
             modules={[EffectCoverflow, Keyboard, Mousewheel]}
             effect="coverflow"
@@ -657,7 +654,7 @@ export default function InventoryApp() {
             ))}
           </Swiper>
           <p className="cf-hint">
-            Glisser · clic pour éditer · {activeIndex + 1}/{items.length}
+            {activeIndex + 1}/{items.length}
           </p>
         </section>
       )}
@@ -1014,7 +1011,7 @@ export default function InventoryApp() {
         </div>
       )}
 
-      <footer className="site-footer">© MK 2026</footer>
+      <footer className="site-footer shell-footer">© MK 2026</footer>
     </main>
   );
 }

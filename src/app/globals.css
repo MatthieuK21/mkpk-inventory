@@ -83,6 +83,115 @@ h3 {
   min-height: 100dvh;
 }
 
+.app-shell {
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #070a09;
+}
+
+.menubar {
+  flex: 0 0 auto;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  min-height: 44px;
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.menubar-brand {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  padding: 0 0.2rem;
+}
+
+.menubar-search,
+.menubar-select {
+  flex: 0 1 auto;
+  min-width: 5.5rem;
+  width: auto;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #f7faf8;
+  font-size: 0.82rem;
+}
+
+.menubar-search {
+  flex: 1 1 8rem;
+  min-width: 7rem;
+}
+
+.menubar-meta {
+  flex: 0 0 auto;
+  min-width: 1.6rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.menubar-user {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid rgba(31, 92, 77, 0.28);
+}
+
+.menubar-user:hover:not(:disabled) {
+  background: rgba(31, 92, 77, 0.06);
+  transform: none;
+}
+
+.menubar-error {
+  margin: 0;
+  border-radius: 0;
+  flex: 0 0 auto;
+}
+
+.stage-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.coverflow-stage.stage-fill {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  place-items: stretch;
+  margin: 0;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  padding: 1.25rem 0 2.5rem;
+}
+
+.shell-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.35rem;
+  margin: 0;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+  z-index: 5;
+}
+
 .topbar-simple {
   display: flex;
   justify-content: space-between;
@@ -209,7 +318,7 @@ button.danger {
 }
 
 .coverflow-slide {
-  width: min(250px, 72vw) !important;
+  width: min(320px, 78vw) !important;
   background: transparent;
 }
 
@@ -278,9 +387,9 @@ button.danger {
 
 .cf-hint {
   text-align: center;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 0.78rem;
-  margin: 0.2rem 0 0.9rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+  margin: 0.15rem 0 0;
 }
 
 .stage-msg,

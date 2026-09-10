@@ -5,6 +5,21 @@ export type Category = {
   created_at: string;
 };
 
+export type AppUser = {
+  id: string;
+  name: string;
+  created_at: string;
+};
+
+export type ItemComment = {
+  id: string;
+  item_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  user?: AppUser | null;
+};
+
 export type InventoryItem = {
   id: string;
   name: string;

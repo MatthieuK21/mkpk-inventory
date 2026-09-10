@@ -1,12 +1,39 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import type { Category, InventoryItem } from "@/lib/types";
+import type {
+  AppUser,
+  Category,
+  InventoryItem,
+  ItemComment,
+} from "@/lib/types";
 
 const PASSWORD_KEY = "mkpk-inventory-password";
+const USER_KEY = "mkpk-inventory-user";
 
 function authHeaders(password: string): HeadersInit {
   return password ? { "x-inventory-password": password } : {};
+}
+
+function loadStoredUser(): AppUser | null {
+  try {
+    const raw = sessionStorage.getItem(USER_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as AppUser;
+  } catch {
+    return null;
+  }
+}
+
+function formatDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleString("fr-FR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
 }
 
 export default function InventoryApp() {
@@ -14,6 +41,8 @@ export default function InventoryApp() {
   const [configured, setConfigured] = useState(true);
   const [password, setPassword] = useState("");
   const [unlocked, setUnlocked] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [users, setUsers] = useState<AppUser[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState("");
@@ -21,8 +50,8 @@ export default function InventoryApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [selected, setSelected] = useState<InventoryItem | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -32,11 +61,34 @@ export default function InventoryApp() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newUserName, setNewUserName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [editDrafts, setEditDrafts] = useState<
+    Record<
+      string,
+      {
+        name: string;
+        description: string;
+        location: string;
+        quantity: number;
+        category_id: string;
+      }
+    >
+  >({});
+  const [commentsByItem, setCommentsByItem] = useState<
+    Record<string, ItemComment[]>
+  >({});
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
+    {},
+  );
+  const [savingItemId, setSavingItemId] = useState<string | null>(null);
+  const [commentingItemId, setCommentingItemId] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = sessionStorage.getItem(PASSWORD_KEY) ?? "";
     if (saved) setPassword(saved);
+    setCurrentUser(loadStoredUser());
 
     fetch("/api/config")
       .then((r) => r.json())
@@ -60,12 +112,17 @@ export default function InventoryApp() {
       if (query.trim()) params.set("q", query.trim());
       if (categoryFilter) params.set("category", categoryFilter);
 
-      const [catRes, itemRes] = await Promise.all([
+      const [catRes, itemRes, userRes] = await Promise.all([
         fetch("/api/categories", { headers: authHeaders(pwd) }),
         fetch(`/api/items?${params}`, { headers: authHeaders(pwd) }),
+        fetch("/api/users", { headers: authHeaders(pwd) }),
       ]);
 
-      if (catRes.status === 401 || itemRes.status === 401) {
+      if (
+        catRes.status === 401 ||
+        itemRes.status === 401 ||
+        userRes.status === 401
+      ) {
         setUnlocked(false);
         sessionStorage.removeItem(PASSWORD_KEY);
         throw new Error("Mot de passe incorrect");
@@ -73,12 +130,15 @@ export default function InventoryApp() {
 
       const catJson = await catRes.json();
       const itemJson = await itemRes.json();
+      const userJson = await userRes.json();
 
       if (!catRes.ok) throw new Error(catJson.error || "Erreur catégories");
       if (!itemRes.ok) throw new Error(itemJson.error || "Erreur inventaire");
+      if (!userRes.ok) throw new Error(userJson.error || "Erreur utilisateurs");
 
       setCategories(catJson.categories ?? []);
       setItems(itemJson.items ?? []);
+      setUsers(userJson.users ?? []);
       setUnlocked(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur de chargement");
@@ -89,12 +149,30 @@ export default function InventoryApp() {
 
   useEffect(() => {
     if (!unlocked || !configured) return;
+
+    if (!currentUser) {
+      // Charger les profils pour l'écran de connexion
+      void (async () => {
+        try {
+          const res = await fetch("/api/users", {
+            headers: authHeaders(password),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || "Erreur utilisateurs");
+          setUsers(json.users ?? []);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Erreur utilisateurs");
+        }
+      })();
+      return;
+    }
+
     const t = setTimeout(() => {
       void loadData();
     }, 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unlocked, configured, query, categoryFilter]);
+  }, [unlocked, configured, currentUser, query, categoryFilter]);
 
   useEffect(() => {
     if (!file) {
@@ -106,7 +184,54 @@ export default function InventoryApp() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  useEffect(() => {
+    if (!openId || !currentUser) return;
+    const item = items.find((i) => i.id === openId);
+    if (!item) return;
+
+    setEditDrafts((prev) => ({
+      ...prev,
+      [openId]:
+        prev[openId] ?? {
+          name: item.name,
+          description: item.description ?? "",
+          location: item.location ?? "",
+          quantity: item.quantity,
+          category_id: item.category_id ?? "",
+        },
+    }));
+
+    if (!commentsByItem[openId]) {
+      void loadComments(openId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, items]);
+
   const hasFilters = Boolean(query.trim() || categoryFilter);
+
+  async function loadComments(itemId: string) {
+    try {
+      const res = await fetch(`/api/items/${itemId}/comments`, {
+        headers: authHeaders(password),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erreur commentaires");
+      setCommentsByItem((prev) => ({ ...prev, [itemId]: json.comments ?? [] }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur commentaires");
+    }
+  }
+
+  function connectAs(user: AppUser) {
+    sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+    setCurrentUser(user);
+  }
+
+  function disconnect() {
+    sessionStorage.removeItem(USER_KEY);
+    setCurrentUser(null);
+    setOpenId(null);
+  }
 
   function resetAddForm() {
     setName("");
@@ -128,6 +253,28 @@ export default function InventoryApp() {
     e.preventDefault();
     sessionStorage.setItem(PASSWORD_KEY, password);
     setUnlocked(true);
+  }
+
+  async function createUser(e: FormEvent) {
+    e.preventDefault();
+    if (!newUserName.trim()) return;
+    setError(null);
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(password),
+        },
+        body: JSON.stringify({ name: newUserName.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Impossible de créer l'utilisateur");
+      setNewUserName("");
+      connectAs(json.user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur utilisateur");
+    }
   }
 
   async function onSubmit(e: FormEvent) {
@@ -155,6 +302,7 @@ export default function InventoryApp() {
 
       closeAdd();
       await loadData();
+      if (json.item?.id) setOpenId(json.item.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur d'enregistrement");
     } finally {
@@ -184,6 +332,81 @@ export default function InventoryApp() {
     }
   }
 
+  async function saveItem(itemId: string) {
+    const draft = editDrafts[itemId];
+    if (!draft?.name.trim()) return;
+
+    setSavingItemId(itemId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/items/${itemId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(password),
+        },
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          description: draft.description,
+          location: draft.location,
+          quantity: draft.quantity,
+          category_id: draft.category_id || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Échec de la mise à jour");
+
+      setItems((prev) =>
+        prev.map((item) => (item.id === itemId ? json.item : item)),
+      );
+      setEditDrafts((prev) => ({
+        ...prev,
+        [itemId]: {
+          name: json.item.name,
+          description: json.item.description ?? "",
+          location: json.item.location ?? "",
+          quantity: json.item.quantity,
+          category_id: json.item.category_id ?? "",
+        },
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur de mise à jour");
+    } finally {
+      setSavingItemId(null);
+    }
+  }
+
+  async function addComment(itemId: string) {
+    if (!currentUser) return;
+    const body = (commentDrafts[itemId] ?? "").trim();
+    if (!body) return;
+
+    setCommentingItemId(itemId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/items/${itemId}/comments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(password),
+        },
+        body: JSON.stringify({ user_id: currentUser.id, body }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Échec du commentaire");
+
+      setCommentsByItem((prev) => ({
+        ...prev,
+        [itemId]: [...(prev[itemId] ?? []), json.comment],
+      }));
+      setCommentDrafts((prev) => ({ ...prev, [itemId]: "" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur commentaire");
+    } finally {
+      setCommentingItemId(null);
+    }
+  }
+
   async function deleteItem(id: string) {
     if (!confirm("Supprimer cet objet de l'inventaire ?")) return;
     setError(null);
@@ -194,7 +417,7 @@ export default function InventoryApp() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Suppression impossible");
-      setSelected(null);
+      setOpenId(null);
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur suppression");
@@ -236,6 +459,53 @@ export default function InventoryApp() {
     );
   }
 
+  if (!currentUser) {
+    return (
+      <main className="gate">
+        <div className="gate-card identity">
+          <p className="brand">MKPK</p>
+          <h1>Qui êtes-vous ?</h1>
+          <p className="muted">
+            Choisissez votre profil pour commenter et éditer les objets.
+          </p>
+          {error && <p className="error">{error}</p>}
+          <div className="user-list">
+            {users.length === 0 && unlocked ? (
+              <p className="muted">
+                Aucun profil. Créez le vôtre ci-dessous.
+                <br />
+                <small>
+                  Si une erreur apparaît, exécutez{" "}
+                  <code>supabase/users_comments.sql</code> dans Supabase.
+                </small>
+              </p>
+            ) : (
+              users.map((user) => (
+                <button
+                  key={user.id}
+                  type="button"
+                  className="user-chip"
+                  onClick={() => connectAs(user)}
+                >
+                  {user.name}
+                </button>
+              ))
+            )}
+          </div>
+          <form className="new-user" onSubmit={createUser}>
+            <input
+              value={newUserName}
+              onChange={(e) => setNewUserName(e.target.value)}
+              placeholder="Nouveau profil (prénom)"
+              required
+            />
+            <button type="submit">Créer et entrer</button>
+          </form>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="app">
       <header className="topbar">
@@ -247,7 +517,17 @@ export default function InventoryApp() {
           <span className="count">
             {items.length} objet{items.length > 1 ? "s" : ""}
           </span>
-          <button type="button" className="add-btn" onClick={() => setShowAdd(true)}>
+          <span className="user-badge">
+            Connecté : <strong>{currentUser.name}</strong>
+          </span>
+          <button type="button" className="ghost" onClick={disconnect}>
+            Changer
+          </button>
+          <button
+            type="button"
+            className="add-btn"
+            onClick={() => setShowAdd(true)}
+          >
             + Ajouter
           </button>
         </div>
@@ -311,25 +591,202 @@ export default function InventoryApp() {
             )}
           </div>
         ) : (
-          <div className="grid">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="card"
-                onClick={() => setSelected(item)}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.image_url} alt={item.name} loading="lazy" />
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>
-                    {item.category?.name ?? "Sans catégorie"}
-                    {item.location ? ` · ${item.location}` : ""}
-                  </span>
-                </div>
-              </button>
-            ))}
+          <div className="accordion">
+            {items.map((item) => {
+              const open = openId === item.id;
+              const draft = editDrafts[item.id];
+              const comments = commentsByItem[item.id] ?? [];
+
+              return (
+                <article
+                  key={item.id}
+                  className={`acc-item ${open ? "open" : ""}`}
+                >
+                  <button
+                    type="button"
+                    className="acc-header"
+                    onClick={() => setOpenId(open ? null : item.id)}
+                    aria-expanded={open}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.image_url} alt="" className="acc-thumb" />
+                    <div className="acc-title">
+                      <strong>{item.name}</strong>
+                      <span>
+                        {item.category?.name ?? "Sans catégorie"}
+                        {item.location ? ` · ${item.location}` : ""}
+                        {` · ×${item.quantity}`}
+                      </span>
+                    </div>
+                    <span className="acc-chevron" aria-hidden>
+                      {open ? "−" : "+"}
+                    </span>
+                  </button>
+
+                  {open && draft && (
+                    <div className="acc-panel">
+                      <div className="acc-media">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.image_url} alt={item.name} />
+                      </div>
+
+                      <div className="acc-edit">
+                        <h3>Modifier</h3>
+                        <div className="fields">
+                          <label>
+                            Nom
+                            <input
+                              value={draft.name}
+                              onChange={(e) =>
+                                setEditDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...draft,
+                                    name: e.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label>
+                            Catégorie
+                            <select
+                              value={draft.category_id}
+                              onChange={(e) =>
+                                setEditDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...draft,
+                                    category_id: e.target.value,
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">Sans catégorie</option>
+                              {categories.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Lieu
+                            <input
+                              value={draft.location}
+                              onChange={(e) =>
+                                setEditDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...draft,
+                                    location: e.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label>
+                            Quantité
+                            <input
+                              type="number"
+                              min={0}
+                              value={draft.quantity}
+                              onChange={(e) =>
+                                setEditDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...draft,
+                                    quantity: Number(e.target.value),
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="full">
+                            Description
+                            <textarea
+                              rows={3}
+                              value={draft.description}
+                              onChange={(e) =>
+                                setEditDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...draft,
+                                    description: e.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <div className="modal-actions">
+                          <button
+                            type="button"
+                            onClick={() => void saveItem(item.id)}
+                            disabled={savingItemId === item.id}
+                          >
+                            {savingItemId === item.id
+                              ? "Enregistrement…"
+                              : "Enregistrer"}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            onClick={() => void deleteItem(item.id)}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="acc-comments">
+                        <h3>Commentaires</h3>
+                        <ul className="comment-list">
+                          {comments.length === 0 ? (
+                            <li className="muted">Aucun commentaire.</li>
+                          ) : (
+                            comments.map((c) => (
+                              <li key={c.id}>
+                                <div className="comment-meta">
+                                  <strong>{c.user?.name ?? "Inconnu"}</strong>
+                                  <span>{formatDate(c.created_at)}</span>
+                                </div>
+                                <p>{c.body}</p>
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                        <div className="comment-form">
+                          <textarea
+                            rows={2}
+                            placeholder={`Commentaire en tant que ${currentUser.name}…`}
+                            value={commentDrafts[item.id] ?? ""}
+                            onChange={(e) =>
+                              setCommentDrafts((prev) => ({
+                                ...prev,
+                                [item.id]: e.target.value,
+                              }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void addComment(item.id)}
+                            disabled={
+                              commentingItemId === item.id ||
+                              !(commentDrafts[item.id] ?? "").trim()
+                            }
+                          >
+                            {commentingItemId === item.id
+                              ? "Envoi…"
+                              : "Publier"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
@@ -443,43 +900,6 @@ export default function InventoryApp() {
                 </button>
               </div>
             </form>
-          </article>
-        </div>
-      )}
-
-      {selected && (
-        <div className="modal" onClick={() => setSelected(null)}>
-          <article className="modal-detail" onClick={(e) => e.stopPropagation()}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={selected.image_url} alt={selected.name} />
-            <div className="modal-body">
-              <h3>{selected.name}</h3>
-              <p>
-                <span
-                  className="tag"
-                  style={{
-                    background: selected.category?.color ?? "#6B7280",
-                  }}
-                >
-                  {selected.category?.name ?? "Sans catégorie"}
-                </span>
-              </p>
-              {selected.location && <p>Lieu : {selected.location}</p>}
-              <p>Quantité : {selected.quantity}</p>
-              {selected.description && <p>{selected.description}</p>}
-              <div className="modal-actions">
-                <button type="button" onClick={() => setSelected(null)}>
-                  Fermer
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => void deleteItem(selected.id)}
-                >
-                  Supprimer
-                </button>
-              </div>
-            </div>
           </article>
         </div>
       )}

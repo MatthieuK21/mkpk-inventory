@@ -31,6 +31,10 @@ export type ItemHistoryEntry = {
   change_labels?: string[];
 };
 
+export type ItemOwner = "Pierre" | "LUCEKA";
+
+export const ITEM_OWNERS: ItemOwner[] = ["Pierre", "LUCEKA"];
+
 export type InventoryItem = {
   id: string;
   name: string;
@@ -38,6 +42,7 @@ export type InventoryItem = {
   location: string | null;
   quantity: number;
   estimated_price: number | null;
+  owner: ItemOwner | null;
   category_id: string | null;
   image_path: string;
   created_at: string;
@@ -52,5 +57,6 @@ export type ItemInput = {
   location?: string;
   quantity?: number;
   estimated_price?: number | null;
+  owner?: ItemOwner | null;
   category_id?: string | null;
 };

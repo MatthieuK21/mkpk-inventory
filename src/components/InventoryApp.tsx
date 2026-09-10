@@ -12,7 +12,9 @@ import type {
   InventoryItem,
   ItemComment,
   ItemHistoryEntry,
+  ItemOwner,
 } from "@/lib/types";
+import { ITEM_OWNERS } from "@/lib/types";
 import {
   fieldLabel,
   formatHistoryValue,
@@ -29,6 +31,7 @@ type Draft = {
   quantity: number;
   category_id: string;
   estimated_price: string;
+  owner: ItemOwner | "";
 };
 
 function authHeaders(password: string): HeadersInit {
@@ -66,6 +69,7 @@ function draftFromItem(item: InventoryItem): Draft {
       item.estimated_price === null || item.estimated_price === undefined
         ? ""
         : String(item.estimated_price),
+    owner: item.owner ?? "",
   };
 }
 
@@ -86,6 +90,7 @@ export default function InventoryApp() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
@@ -101,6 +106,7 @@ export default function InventoryApp() {
   const [location, setLocation] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [estimatedPrice, setEstimatedPrice] = useState("");
+  const [owner, setOwner] = useState<ItemOwner | "">("");
   const [categoryId, setCategoryId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -141,6 +147,7 @@ export default function InventoryApp() {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
       if (categoryFilter) params.set("category", categoryFilter);
+      if (ownerFilter) params.set("owner", ownerFilter);
 
       const [catRes, itemRes, userRes, locRes] = await Promise.all([
         fetch("/api/categories", { headers: authHeaders(pwd) }),
@@ -203,7 +210,7 @@ export default function InventoryApp() {
     const t = setTimeout(() => void loadData(), 180);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unlocked, configured, currentUser, query, categoryFilter]);
+  }, [unlocked, configured, currentUser, query, categoryFilter, ownerFilter]);
 
   useEffect(() => {
     if (!file) {
@@ -274,6 +281,7 @@ export default function InventoryApp() {
     quantity,
     categoryId,
     estimatedPrice,
+    owner,
   ]);
 
   function connectAs(user: AppUser) {
@@ -292,6 +300,7 @@ export default function InventoryApp() {
     setLocation("");
     setQuantity(1);
     setEstimatedPrice("");
+    setOwner("");
     setCategoryId("");
     setFile(null);
     addSavingRef.current = false;
@@ -325,6 +334,7 @@ export default function InventoryApp() {
       form.set("quantity", String(quantity));
       form.set("user_id", currentUser.id);
       if (estimatedPrice.trim()) form.set("estimated_price", estimatedPrice.trim());
+      if (owner) form.set("owner", owner);
       if (categoryId) form.set("category_id", categoryId);
 
       const res = await fetch("/api/items", {
@@ -366,6 +376,7 @@ export default function InventoryApp() {
           quantity: current.quantity,
           category_id: current.category_id || null,
           estimated_price: current.estimated_price,
+          owner: current.owner || null,
           user_id: currentUser?.id ?? null,
         }),
       });
@@ -573,6 +584,17 @@ export default function InventoryApp() {
             </option>
           ))}
         </select>
+        <select
+          value={ownerFilter}
+          onChange={(e) => setOwnerFilter(e.target.value)}
+        >
+          <option value="">Tous propriétaires</option>
+          {ITEM_OWNERS.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
       </section>
 
       {loading ? (
@@ -617,6 +639,7 @@ export default function InventoryApp() {
                   <div className="cf-caption">
                     <strong>{item.name}</strong>
                     <span>
+                      {item.owner ? `${item.owner} · ` : ""}
                       {item.category?.name ?? "Sans catégorie"}
                       {item.location ? ` · ${item.location}` : ""}
                       {item.estimated_price != null
@@ -742,6 +765,23 @@ export default function InventoryApp() {
                   />
                 </label>
                 <label>
+                  Propriétaire
+                  <select
+                    value={owner}
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setOwner(e.target.value as ItemOwner | "");
+                    }}
+                  >
+                    <option value="">Non attribué</option>
+                    {ITEM_OWNERS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
                   Prix estimé (€)
                   <input
                     type="number"
@@ -844,6 +884,25 @@ export default function InventoryApp() {
                       })
                     }
                   />
+                </label>
+                <label>
+                  Propriétaire
+                  <select
+                    value={draft.owner}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        owner: e.target.value as ItemOwner | "",
+                      })
+                    }
+                  >
+                    <option value="">Non attribué</option>
+                    {ITEM_OWNERS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Prix estimé (€)

@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabaseAdmin();
     const categoryId = request.nextUrl.searchParams.get("category");
+    const owner = request.nextUrl.searchParams.get("owner");
     const q = request.nextUrl.searchParams.get("q")?.trim();
 
     let query = supabase
@@ -18,6 +19,10 @@ export async function GET(request: NextRequest) {
 
     if (categoryId) {
       query = query.eq("category_id", categoryId);
+    }
+
+    if (owner === "Pierre" || owner === "LUCEKA") {
+      query = query.eq("owner", owner);
     }
 
     if (q) {
@@ -56,6 +61,9 @@ export async function POST(request: NextRequest) {
     const quantity = Number(form.get("quantity") ?? 1);
     const categoryId = String(form.get("category_id") ?? "").trim() || null;
     const estimatedPrice = parsePrice(form.get("estimated_price"));
+    const ownerRaw = String(form.get("owner") ?? "").trim();
+    const owner =
+      ownerRaw === "Pierre" || ownerRaw === "LUCEKA" ? ownerRaw : null;
     const userId = String(form.get("user_id") ?? "").trim() || null;
 
     if (!name) {
@@ -99,6 +107,7 @@ export async function POST(request: NextRequest) {
         quantity: Number.isFinite(quantity) && quantity >= 0 ? quantity : 1,
         category_id: categoryId,
         estimated_price: estimatedPrice,
+        owner,
         image_path: imagePath,
       })
       .select("*, category:categories(*)")
@@ -118,6 +127,7 @@ export async function POST(request: NextRequest) {
         ...(estimatedPrice !== null
           ? { estimated_price: { from: null, to: estimatedPrice } }
           : {}),
+        ...(owner ? { owner: { from: null, to: owner } } : {}),
       },
     });
 

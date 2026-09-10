@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #eef3ef;
-  --bg-2: #e4ebe4;
-  --panel: rgba(255, 255, 255, 0.9);
-  --ink: #1c2b24;
-  --muted: #5d6f66;
-  --accent: #2f6f5e;
-  --accent-2: #1f4f43;
-  --line: rgba(28, 43, 36, 0.12);
+  --bg: #f3f5f4;
+  --bg-2: #e8ece9;
+  --panel: #ffffff;
+  --ink: #15201b;
+  --muted: #66756d;
+  --accent: #1f5c4d;
+  --accent-2: #164739;
+  --line: rgba(21, 32, 27, 0.1);
   --danger: #9b3b2f;
-  --shadow: 0 12px 32px rgba(28, 43, 36, 0.1);
+  --shadow: 0 10px 40px rgba(21, 32, 27, 0.08);
   --radius: 16px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -28,7 +28,10 @@ body {
 body {
   color: var(--ink);
   font-family: var(--font-sans), "Segoe UI", sans-serif;
-  background: linear-gradient(180deg, var(--bg), var(--bg-2));
+  background:
+    radial-gradient(900px 420px at 0% -10%, rgba(31, 92, 77, 0.08), transparent 55%),
+    radial-gradient(700px 380px at 100% 0%, rgba(21, 32, 27, 0.04), transparent 50%),
+    linear-gradient(180deg, var(--bg), var(--bg-2));
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -74,9 +77,9 @@ h3 {
 }
 
 .app-simple {
-  width: min(960px, 100%);
+  width: min(980px, 100%);
   margin: 0 auto;
-  padding: 0.85rem 0.85rem calc(5.5rem + var(--safe-bottom));
+  padding: 1rem 1rem calc(5.8rem + var(--safe-bottom));
   min-height: 100dvh;
 }
 
@@ -85,7 +88,13 @@ h3 {
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.9rem;
+  padding: 0.85rem 1rem;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
 }
 
 .user-line {
@@ -122,9 +131,15 @@ h3 {
 
 .filters-simple {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+@media (min-width: 640px) {
+  .filters-simple {
+    grid-template-columns: 1.4fr 1fr 1fr;
+  }
 }
 
 input,
@@ -176,11 +191,15 @@ button.danger {
 
 .coverflow-stage {
   position: relative;
-  margin: 0 -0.85rem;
-  padding: 1rem 0 0.25rem;
-  border-radius: 0;
-  background: linear-gradient(180deg, #141a17, #0a0e0c);
+  margin: 0;
+  padding: 1.25rem 0 0.35rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(ellipse at 50% 0%, #2a3a33 0%, transparent 55%),
+    linear-gradient(180deg, #121816, #070a09);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 
 .coverflow-swiper {
@@ -274,10 +293,40 @@ button.danger {
   right: max(1rem, env(safe-area-inset-right));
   bottom: calc(1.1rem + var(--safe-bottom));
   z-index: 30;
-  min-width: 7.2rem;
-  min-height: 3.2rem;
-  box-shadow: 0 10px 28px rgba(31, 79, 67, 0.35);
+  min-width: 7.4rem;
+  min-height: 3.25rem;
+  box-shadow: 0 12px 30px rgba(22, 71, 57, 0.4);
   font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.sheet {
+  width: min(720px, 100%);
+  background: white;
+  border-radius: 20px 20px 0 0;
+  padding: 1.1rem 1.1rem calc(1.1rem + var(--safe-bottom));
+  max-height: min(92dvh, 900px);
+  overflow-y: auto;
+  margin: 0 auto;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (min-width: 720px) {
+  .sheet {
+    border-radius: 20px;
+    padding: 1.35rem;
+    box-shadow: var(--shadow);
+  }
+}
+
+.site-footer {
+  margin-top: 1.75rem;
+  padding: 1rem 0 0.4rem;
+  text-align: center;
+  color: rgba(21, 32, 27, 0.38);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .modal {
@@ -296,24 +345,6 @@ button.danger {
     place-items: center;
     padding: 1rem;
     align-items: center;
-  }
-}
-
-.sheet {
-  width: min(720px, 100%);
-  background: white;
-  border-radius: 18px 18px 0 0;
-  padding: 1rem 1rem calc(1rem + var(--safe-bottom));
-  max-height: min(92dvh, 900px);
-  overflow-y: auto;
-  margin: 0 auto;
-  box-shadow: var(--shadow);
-}
-
-@media (min-width: 720px) {
-  .sheet {
-    border-radius: 18px;
-    padding: 1.15rem;
   }
 }
 
@@ -516,13 +547,4 @@ button.danger {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   border: 0;
-}
-
-.site-footer {
-  margin-top: 1.5rem;
-  padding: 0.75rem 0 0.25rem;
-  text-align: center;
-  color: rgba(28, 43, 36, 0.45);
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
 }

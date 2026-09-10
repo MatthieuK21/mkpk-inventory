@@ -7,6 +7,7 @@ const FIELD_LABELS: Record<string, string> = {
   quantity: "Quantité",
   category_id: "Catégorie",
   estimated_price: "Prix estimé",
+  owner: "Propriétaire",
 };
 
 export type HistoryChange = {

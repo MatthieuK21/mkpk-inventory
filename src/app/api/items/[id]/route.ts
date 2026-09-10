@@ -35,6 +35,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if ("estimated_price" in body) {
       updates.estimated_price = parsePrice(body.estimated_price);
     }
+    if ("owner" in body) {
+      const ownerRaw = String(body.owner ?? "").trim();
+      updates.owner =
+        ownerRaw === "Pierre" || ownerRaw === "LUCEKA" ? ownerRaw : null;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "Rien à mettre à jour" }, { status: 400 });

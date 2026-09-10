@@ -15,6 +15,12 @@ const body = Manrope({
 export const metadata: Metadata = {
   title: "MKPK Inventaire",
   description: "Inventaire photo simple : uploader, classer, retrouver.",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    viewportFit: "cover",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -22,6 +22,15 @@ import {
 const PASSWORD_KEY = "mkpk-inventory-password";
 const USER_KEY = "mkpk-inventory-user";
 
+type Draft = {
+  name: string;
+  description: string;
+  location: string;
+  quantity: number;
+  category_id: string;
+  estimated_price: string;
+};
+
 function authHeaders(password: string): HeadersInit {
   return password ? { "x-inventory-password": password } : {};
 }
@@ -29,8 +38,7 @@ function authHeaders(password: string): HeadersInit {
 function loadStoredUser(): AppUser | null {
   try {
     const raw = sessionStorage.getItem(USER_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as AppUser;
+    return raw ? (JSON.parse(raw) as AppUser) : null;
   } catch {
     return null;
   }
@@ -47,6 +55,25 @@ function formatDate(iso: string) {
   }
 }
 
+function draftFromItem(item: InventoryItem): Draft {
+  return {
+    name: item.name,
+    description: item.description ?? "",
+    location: item.location ?? "",
+    quantity: item.quantity,
+    category_id: item.category_id ?? "",
+    estimated_price:
+      item.estimated_price === null || item.estimated_price === undefined
+        ? ""
+        : String(item.estimated_price),
+  };
+}
+
+function isDraftDirty(item: InventoryItem, draft: Draft) {
+  const base = draftFromItem(item);
+  return JSON.stringify(base) !== JSON.stringify(draft);
+}
+
 export default function InventoryApp() {
   const [passwordRequired, setPasswordRequired] = useState(false);
   const [configured, setConfigured] = useState(true);
@@ -61,11 +88,13 @@ export default function InventoryApp() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
+    "idle",
+  );
   const [showAdd, setShowAdd] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const swiperRef = useRef<SwiperType | null>(null);
+  const [newUserName, setNewUserName] = useState("");
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -75,34 +104,16 @@ export default function InventoryApp() {
   const [categoryId, setCategoryId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [newUserName, setNewUserName] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [editDrafts, setEditDrafts] = useState<
-    Record<
-      string,
-      {
-        name: string;
-        description: string;
-        location: string;
-        quantity: number;
-        category_id: string;
-        estimated_price: string;
-      }
-    >
-  >({});
-  const [commentsByItem, setCommentsByItem] = useState<
-    Record<string, ItemComment[]>
-  >({});
-  const [historyByItem, setHistoryByItem] = useState<
-    Record<string, ItemHistoryEntry[]>
-  >({});
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
-    {},
-  );
-  const [savingItemId, setSavingItemId] = useState<string | null>(null);
-  const [commentingItemId, setCommentingItemId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [comments, setComments] = useState<ItemComment[]>([]);
+  const [history, setHistory] = useState<ItemHistoryEntry[]>([]);
+  const [commentText, setCommentText] = useState("");
+
+  const swiperRef = useRef<SwiperType | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const addSavingRef = useRef(false);
+  const editSavingRef = useRef(false);
 
   const detailItem = detailId
     ? (items.find((item) => item.id === detailId) ?? null)
@@ -118,11 +129,7 @@ export default function InventoryApp() {
       .then((data) => {
         setPasswordRequired(Boolean(data.passwordRequired));
         setConfigured(Boolean(data.configured));
-        if (!data.passwordRequired) {
-          setUnlocked(true);
-        } else if (saved) {
-          setUnlocked(true);
-        }
+        if (!data.passwordRequired || saved) setUnlocked(true);
       })
       .catch(() => setConfigured(false));
   }, []);
@@ -142,21 +149,18 @@ export default function InventoryApp() {
         fetch("/api/locations", { headers: authHeaders(pwd) }),
       ]);
 
-      if (
-        catRes.status === 401 ||
-        itemRes.status === 401 ||
-        userRes.status === 401 ||
-        locRes.status === 401
-      ) {
+      if ([catRes, itemRes, userRes, locRes].some((r) => r.status === 401)) {
         setUnlocked(false);
         sessionStorage.removeItem(PASSWORD_KEY);
         throw new Error("Mot de passe incorrect");
       }
 
-      const catJson = await catRes.json();
-      const itemJson = await itemRes.json();
-      const userJson = await userRes.json();
-      const locJson = await locRes.json();
+      const [catJson, itemJson, userJson, locJson] = await Promise.all([
+        catRes.json(),
+        itemRes.json(),
+        userRes.json(),
+        locRes.json(),
+      ]);
 
       if (!catRes.ok) throw new Error(catJson.error || "Erreur catégories");
       if (!itemRes.ok) throw new Error(itemJson.error || "Erreur inventaire");
@@ -181,7 +185,6 @@ export default function InventoryApp() {
 
   useEffect(() => {
     if (!unlocked || !configured) return;
-
     if (!currentUser) {
       void (async () => {
         try {
@@ -197,10 +200,7 @@ export default function InventoryApp() {
       })();
       return;
     }
-
-    const t = setTimeout(() => {
-      void loadData();
-    }, 200);
+    const t = setTimeout(() => void loadData(), 180);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unlocked, configured, currentUser, query, categoryFilter]);
@@ -216,69 +216,65 @@ export default function InventoryApp() {
   }, [file]);
 
   useEffect(() => {
-    if (!detailItem || !currentUser) return;
-
-    setEditDrafts((prev) => ({
-      ...prev,
-      [detailItem.id]:
-        prev[detailItem.id] ?? {
-          name: detailItem.name,
-          description: detailItem.description ?? "",
-          location: detailItem.location ?? "",
-          quantity: detailItem.quantity,
-          category_id: detailItem.category_id ?? "",
-          estimated_price:
-            detailItem.estimated_price === null ||
-            detailItem.estimated_price === undefined
-              ? ""
-              : String(detailItem.estimated_price),
-        },
-    }));
-
-    if (!commentsByItem[detailItem.id]) {
-      void loadComments(detailItem.id);
+    if (!detailItem) {
+      setDraft(null);
+      return;
     }
-    if (!historyByItem[detailItem.id]) {
-      void loadHistory(detailItem.id);
-    }
+    setDraft(draftFromItem(detailItem));
+    setCommentText("");
+    void (async () => {
+      try {
+        const [cRes, hRes] = await Promise.all([
+          fetch(`/api/items/${detailItem.id}/comments`, {
+            headers: authHeaders(password),
+          }),
+          fetch(`/api/items/${detailItem.id}/history`, {
+            headers: authHeaders(password),
+          }),
+        ]);
+        const cJson = await cRes.json();
+        const hJson = await hRes.json();
+        if (cRes.ok) setComments(cJson.comments ?? []);
+        if (hRes.ok) setHistory(hJson.history ?? []);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [detailItem?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save édition
+  useEffect(() => {
+    if (!detailItem || !draft || !currentUser) return;
+    if (!isDraftDirty(detailItem, draft) || !draft.name.trim()) return;
+    if (editSavingRef.current) return;
+
+    const t = setTimeout(() => {
+      void saveItem(detailItem.id, draft);
+    }, 700);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailItem?.id, currentUser]);
+  }, [draft, detailItem?.id]);
 
-  const hasFilters = Boolean(query.trim() || categoryFilter);
+  // Auto-save création (photo + nom)
+  useEffect(() => {
+    if (!showAdd || !file || !name.trim() || !currentUser) return;
+    if (addSavingRef.current) return;
 
-  function openDetail(itemId: string) {
-    setDetailId(itemId);
-  }
-
-  function closeDetail() {
-    setDetailId(null);
-  }
-
-  async function loadComments(itemId: string) {
-    try {
-      const res = await fetch(`/api/items/${itemId}/comments`, {
-        headers: authHeaders(password),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Erreur commentaires");
-      setCommentsByItem((prev) => ({ ...prev, [itemId]: json.comments ?? [] }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur commentaires");
-    }
-  }
-
-  async function loadHistory(itemId: string) {
-    try {
-      const res = await fetch(`/api/items/${itemId}/history`, {
-        headers: authHeaders(password),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Erreur historique");
-      setHistoryByItem((prev) => ({ ...prev, [itemId]: json.history ?? [] }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur historique");
-    }
-  }
+    const t = setTimeout(() => {
+      void createItem();
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    showAdd,
+    file,
+    name,
+    description,
+    location,
+    quantity,
+    categoryId,
+    estimatedPrice,
+  ]);
 
   function connectAs(user: AppUser) {
     sessionStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -290,7 +286,7 @@ export default function InventoryApp() {
     setCurrentUser(null);
   }
 
-  function resetAddForm() {
+  function resetAdd() {
     setName("");
     setDescription("");
     setLocation("");
@@ -298,48 +294,27 @@ export default function InventoryApp() {
     setEstimatedPrice("");
     setCategoryId("");
     setFile(null);
-    setNewCategoryName("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    addSavingRef.current = false;
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
   }
 
   function closeAdd() {
     setShowAdd(false);
-    resetAddForm();
+    resetAdd();
+    setSaveStatus("idle");
   }
 
-  function unlock(e: FormEvent) {
-    e.preventDefault();
-    sessionStorage.setItem(PASSWORD_KEY, password);
-    setUnlocked(true);
+  function onCameraPick(selected: File | null) {
+    if (!selected) return;
+    setFile(selected);
+    setShowAdd(true);
+    addSavingRef.current = false;
   }
 
-  async function createUser(e: FormEvent) {
-    e.preventDefault();
-    if (!newUserName.trim()) return;
-    setError(null);
-    try {
-      const res = await fetch("/api/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(password),
-        },
-        body: JSON.stringify({ name: newUserName.trim() }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Impossible de créer l'utilisateur");
-      setNewUserName("");
-      connectAs(json.user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur utilisateur");
-    }
-  }
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!file || !name.trim()) return;
-
-    setSaving(true);
+  async function createItem() {
+    if (!file || !name.trim() || !currentUser || addSavingRef.current) return;
+    addSavingRef.current = true;
+    setSaveStatus("saving");
     setError(null);
     try {
       const form = new FormData();
@@ -348,10 +323,8 @@ export default function InventoryApp() {
       form.set("description", description.trim());
       form.set("location", location.trim());
       form.set("quantity", String(quantity));
-      if (estimatedPrice.trim()) {
-        form.set("estimated_price", estimatedPrice.trim());
-      }
-      if (currentUser) form.set("user_id", currentUser.id);
+      form.set("user_id", currentUser.id);
+      if (estimatedPrice.trim()) form.set("estimated_price", estimatedPrice.trim());
       if (categoryId) form.set("category_id", categoryId);
 
       const res = await fetch("/api/items", {
@@ -362,44 +335,22 @@ export default function InventoryApp() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Échec de l'enregistrement");
 
+      setSaveStatus("saved");
       closeAdd();
       await loadData();
       setActiveIndex(0);
       requestAnimationFrame(() => swiperRef.current?.slideTo(0));
     } catch (err) {
+      addSavingRef.current = false;
+      setSaveStatus("idle");
       setError(err instanceof Error ? err.message : "Erreur d'enregistrement");
-    } finally {
-      setSaving(false);
     }
   }
 
-  async function addCategory() {
-    if (!newCategoryName.trim()) return;
-    setError(null);
-    try {
-      const res = await fetch("/api/categories", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(password),
-        },
-        body: JSON.stringify({ name: newCategoryName.trim() }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Impossible d'ajouter la catégorie");
-      setNewCategoryName("");
-      setCategoryId(json.category?.id ?? "");
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur catégorie");
-    }
-  }
-
-  async function saveItem(itemId: string) {
-    const current = editDrafts[itemId];
-    if (!current?.name.trim()) return;
-
-    setSavingItemId(itemId);
+  async function saveItem(itemId: string, current: Draft) {
+    if (editSavingRef.current || !current.name.trim()) return;
+    editSavingRef.current = true;
+    setSaveStatus("saving");
     setError(null);
     try {
       const res = await fetch(`/api/items/${itemId}`, {
@@ -424,63 +375,51 @@ export default function InventoryApp() {
       setItems((prev) =>
         prev.map((item) => (item.id === itemId ? json.item : item)),
       );
-      setEditDrafts((prev) => ({
-        ...prev,
-        [itemId]: {
-          name: json.item.name,
-          description: json.item.description ?? "",
-          location: json.item.location ?? "",
-          quantity: json.item.quantity,
-          category_id: json.item.category_id ?? "",
-          estimated_price:
-            json.item.estimated_price === null ||
-            json.item.estimated_price === undefined
-              ? ""
-              : String(json.item.estimated_price),
-        },
-      }));
-      await loadHistory(itemId);
+      setDraft(draftFromItem(json.item));
+      setSaveStatus("saved");
+      const hRes = await fetch(`/api/items/${itemId}/history`, {
+        headers: authHeaders(password),
+      });
+      const hJson = await hRes.json();
+      if (hRes.ok) setHistory(hJson.history ?? []);
+      setTimeout(() => setSaveStatus("idle"), 1200);
     } catch (err) {
+      setSaveStatus("idle");
       setError(err instanceof Error ? err.message : "Erreur de mise à jour");
     } finally {
-      setSavingItemId(null);
+      editSavingRef.current = false;
     }
   }
 
-  async function addComment(itemId: string) {
-    if (!currentUser) return;
-    const body = (commentDrafts[itemId] ?? "").trim();
-    if (!body) return;
-
-    setCommentingItemId(itemId);
-    setError(null);
+  async function addComment() {
+    if (!detailItem || !currentUser || !commentText.trim()) return;
+    setSaveStatus("saving");
     try {
-      const res = await fetch(`/api/items/${itemId}/comments`, {
+      const res = await fetch(`/api/items/${detailItem.id}/comments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...authHeaders(password),
         },
-        body: JSON.stringify({ user_id: currentUser.id, body }),
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          body: commentText.trim(),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Échec du commentaire");
-
-      setCommentsByItem((prev) => ({
-        ...prev,
-        [itemId]: [...(prev[itemId] ?? []), json.comment],
-      }));
-      setCommentDrafts((prev) => ({ ...prev, [itemId]: "" }));
+      setComments((prev) => [...prev, json.comment]);
+      setCommentText("");
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 1000);
     } catch (err) {
+      setSaveStatus("idle");
       setError(err instanceof Error ? err.message : "Erreur commentaire");
-    } finally {
-      setCommentingItemId(null);
     }
   }
 
   async function deleteItem(id: string) {
-    if (!confirm("Supprimer cet objet de l'inventaire ?")) return;
-    setError(null);
+    if (!confirm("Supprimer cet objet ?")) return;
     try {
       const res = await fetch(`/api/items/${id}`, {
         method: "DELETE",
@@ -495,15 +434,35 @@ export default function InventoryApp() {
     }
   }
 
+  async function createUser(e: FormEvent) {
+    e.preventDefault();
+    if (!newUserName.trim()) return;
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(password),
+        },
+        body: JSON.stringify({ name: newUserName.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Impossible de créer le profil");
+      setNewUserName("");
+      connectAs(json.user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur utilisateur");
+    }
+  }
+
   if (!configured) {
     return (
-      <main className="setup">
-        <h1>MKPK Inventaire</h1>
-        <p>
-          Configurez <code>SUPABASE_URL</code> et{" "}
-          <code>SUPABASE_SERVICE_ROLE_KEY</code>, puis exécutez le SQL dans{" "}
-          <code>supabase/schema.sql</code>.
-        </p>
+      <main className="gate">
+        <div className="gate-card">
+          <p className="brand">MKPK</p>
+          <h1>Config requise</h1>
+          <p className="muted">Variables Supabase manquantes.</p>
+        </div>
       </main>
     );
   }
@@ -511,10 +470,16 @@ export default function InventoryApp() {
   if (passwordRequired && !unlocked) {
     return (
       <main className="gate">
-        <form className="gate-card" onSubmit={unlock}>
+        <form
+          className="gate-card"
+          onSubmit={(e) => {
+            e.preventDefault();
+            sessionStorage.setItem(PASSWORD_KEY, password);
+            setUnlocked(true);
+          }}
+        >
           <p className="brand">MKPK</p>
           <h1>Inventaire</h1>
-          <p className="muted">Entrez le mot de passe pour accéder.</p>
           <input
             type="password"
             value={password}
@@ -524,7 +489,6 @@ export default function InventoryApp() {
             required
           />
           <button type="submit">Entrer</button>
-          {error && <p className="error">{error}</p>}
         </form>
       </main>
     );
@@ -533,71 +497,54 @@ export default function InventoryApp() {
   if (!currentUser) {
     return (
       <main className="gate">
-        <div className="gate-card identity">
+        <div className="gate-card">
           <p className="brand">MKPK</p>
           <h1>Qui êtes-vous ?</h1>
-          <p className="muted">
-            Choisissez votre profil pour commenter et éditer les objets.
-          </p>
           {error && <p className="error">{error}</p>}
           <div className="user-list">
-            {users.length === 0 ? (
-              <p className="muted">Aucun profil. Créez le vôtre ci-dessous.</p>
-            ) : (
-              users.map((user) => (
-                <button
-                  key={user.id}
-                  type="button"
-                  className="user-chip"
-                  onClick={() => connectAs(user)}
-                >
-                  {user.name}
-                </button>
-              ))
-            )}
+            {users.map((user) => (
+              <button
+                key={user.id}
+                type="button"
+                className="user-chip"
+                onClick={() => connectAs(user)}
+              >
+                {user.name}
+              </button>
+            ))}
           </div>
           <form className="new-user" onSubmit={createUser}>
             <input
               value={newUserName}
               onChange={(e) => setNewUserName(e.target.value)}
-              placeholder="Nouveau profil (prénom)"
+              placeholder="Nouveau profil"
               required
             />
-            <button type="submit">Créer et entrer</button>
+            <button type="submit">Entrer</button>
           </form>
         </div>
       </main>
     );
   }
 
-  const draft = detailItem ? editDrafts[detailItem.id] : null;
-  const comments = detailItem ? (commentsByItem[detailItem.id] ?? []) : [];
-  const history = detailItem ? (historyByItem[detailItem.id] ?? []) : [];
-
   return (
-    <main className="app app-coverflow">
-      <header className="topbar">
+    <main className="app app-simple">
+      <header className="topbar-simple">
         <div>
           <p className="brand">MKPK</p>
-          <h1>Inventaire</h1>
+          <p className="user-line">
+            {currentUser.name}
+            <button type="button" className="linkish" onClick={disconnect}>
+              changer
+            </button>
+          </p>
         </div>
-        <div className="topbar-actions">
-          <span className="count">
-            {items.length} objet{items.length > 1 ? "s" : ""}
-          </span>
-          <span className="user-badge">
-            Connecté : <strong>{currentUser.name}</strong>
-          </span>
-          <button type="button" className="ghost" onClick={disconnect}>
-            Changer
-          </button>
-          <button
-            type="button"
-            className="add-btn"
-            onClick={() => setShowAdd(true)}
-          >
-            + Ajouter
-          </button>
+        <div className="status-pill" aria-live="polite">
+          {saveStatus === "saving"
+            ? "Enregistrement…"
+            : saveStatus === "saved"
+              ? "Enregistré"
+              : `${items.length} objet${items.length > 1 ? "s" : ""}`}
         </div>
       </header>
 
@@ -609,447 +556,157 @@ export default function InventoryApp() {
         ))}
       </datalist>
 
-      <section className="filters-bar">
-        <div className="filters">
-          <label className="filter-field">
-            <span>Catégorie</span>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
-              <option value="">Toutes les catégories</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="filter-field">
-            <span>Recherche</span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Nom, lieu, description…"
-            />
-          </label>
-          {hasFilters && (
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                setQuery("");
-                setCategoryFilter("");
-              }}
-            >
-              Réinitialiser
-            </button>
-          )}
-        </div>
+      <section className="filters-simple">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Rechercher…"
+        />
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
+          <option value="">Toutes catégories</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </section>
 
       {loading ? (
         <p className="muted stage-msg">Chargement…</p>
       ) : items.length === 0 ? (
         <div className="empty-state stage-msg">
-          <p className="muted">
-            {hasFilters
-              ? "Aucun objet ne correspond à ces filtres."
-              : "Aucun objet pour le moment."}
-          </p>
-          {!hasFilters && (
-            <button type="button" onClick={() => setShowAdd(true)}>
-              Ajouter le premier objet
-            </button>
-          )}
+          <p className="muted">Aucun objet. Prenez une photo pour commencer.</p>
         </div>
       ) : (
-        <>
-          <section className="coverflow-stage">
-            <button
-              type="button"
-              className="cf-nav prev"
-              aria-label="Photo précédente"
-              onClick={() => swiperRef.current?.slidePrev()}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className="cf-nav next"
-              aria-label="Photo suivante"
-              onClick={() => swiperRef.current?.slideNext()}
-            >
-              ›
-            </button>
-
-            <Swiper
-              modules={[EffectCoverflow, Keyboard, Mousewheel]}
-              effect="coverflow"
-              grabCursor
-              centeredSlides
-              slidesPerView="auto"
-              initialSlide={activeIndex}
-              keyboard={{ enabled: true }}
-              mousewheel={{
-                forceToAxis: true,
-                sensitivity: 1,
-                releaseOnEdges: true,
-              }}
-              coverflowEffect={{
-                rotate: 28,
-                stretch: 0,
-                depth: 180,
-                modifier: 1.15,
-                slideShadows: true,
-              }}
-              onSwiper={(swiper) => {
-                swiperRef.current = swiper;
-              }}
-              onSlideChange={(swiper) => setActiveIndex(swiper.activeIndex)}
-              onClick={(swiper) => {
-                const idx = swiper.clickedIndex;
-                if (typeof idx === "number" && items[idx]) {
-                  openDetail(items[idx].id);
-                }
-              }}
-              className="coverflow-swiper"
-            >
-              {items.map((item) => (
-                <SwiperSlide key={item.id} className="coverflow-slide">
-                  <button
-                    type="button"
-                    className="cf-card"
-                    onClick={() => openDetail(item.id)}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.image_url} alt={item.name} />
-                    <div className="cf-caption">
-                      <strong>{item.name}</strong>
-                      <span>
-                        {item.category?.name ?? "Sans catégorie"}
-                        {item.location ? ` · ${item.location}` : ""}
-                      </span>
-                    </div>
-                  </button>
-                  <div
-                    className="cf-reflection"
-                    style={{ backgroundImage: `url(${item.image_url})` }}
-                    aria-hidden
-                  />
-                </SwiperSlide>
-              ))}
-            </Swiper>
-
-            <p className="cf-hint">
-              Scroll / glisser · clic pour éditer · {activeIndex + 1}/
-              {items.length}
-            </p>
-          </section>
-        </>
-      )}
-
-      {detailItem && draft && (
-        <div className="modal" onClick={closeDetail}>
-          <article
-            className="modal-detail-edit"
-            onClick={(e) => e.stopPropagation()}
+        <section className="coverflow-stage">
+          <Swiper
+            modules={[EffectCoverflow, Keyboard, Mousewheel]}
+            effect="coverflow"
+            grabCursor
+            centeredSlides
+            slidesPerView="auto"
+            initialSlide={activeIndex}
+            keyboard={{ enabled: true }}
+            mousewheel={{ forceToAxis: true, sensitivity: 1, releaseOnEdges: true }}
+            coverflowEffect={{
+              rotate: 24,
+              stretch: 0,
+              depth: 160,
+              modifier: 1.1,
+              slideShadows: true,
+            }}
+            onSwiper={(swiper) => {
+              swiperRef.current = swiper;
+            }}
+            onSlideChange={(swiper) => setActiveIndex(swiper.activeIndex)}
+            className="coverflow-swiper"
           >
-            <div className="modal-head">
-              <h2>{detailItem.name}</h2>
-              <button
-                type="button"
-                className="ghost close-x"
-                onClick={closeDetail}
-              >
-                Fermer
-              </button>
-            </div>
-
-            <div className="detail-grid">
-              <div className="detail-photo">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={detailItem.image_url} alt={detailItem.name} />
-              </div>
-
-              <div className="acc-edit">
-                <p className="muted detail-meta">
-                  {detailItem.category?.name ?? "Sans catégorie"}
-                  {detailItem.location ? ` · ${detailItem.location}` : ""}
-                  {` · ×${detailItem.quantity}`}
-                  {detailItem.estimated_price != null
-                    ? ` · ${formatPrice(detailItem.estimated_price)}`
-                    : ""}
-                </p>
-                <h3>Modifier</h3>
-                <div className="fields">
-                  <label>
-                    Nom
-                    <input
-                      value={draft.name}
-                      onChange={(e) =>
-                        setEditDrafts((prev) => ({
-                          ...prev,
-                          [detailItem.id]: {
-                            ...draft,
-                            name: e.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Catégorie
-                    <select
-                      value={draft.category_id}
-                      onChange={(e) =>
-                        setEditDrafts((prev) => ({
-                          ...prev,
-                          [detailItem.id]: {
-                            ...draft,
-                            category_id: e.target.value,
-                          },
-                        }))
-                      }
-                    >
-                      <option value="">Sans catégorie</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Lieu
-                    <input
-                      list="known-locations"
-                      value={draft.location}
-                      onChange={(e) =>
-                        setEditDrafts((prev) => ({
-                          ...prev,
-                          [detailItem.id]: {
-                            ...draft,
-                            location: e.target.value,
-                          },
-                        }))
-                      }
-                      placeholder="Choisir ou saisir un lieu"
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    Quantité
-                    <input
-                      type="number"
-                      min={0}
-                      value={draft.quantity}
-                      onChange={(e) =>
-                        setEditDrafts((prev) => ({
-                          ...prev,
-                          [detailItem.id]: {
-                            ...draft,
-                            quantity: Number(e.target.value),
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Prix estimé (€)
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={draft.estimated_price}
-                      onChange={(e) =>
-                        setEditDrafts((prev) => ({
-                          ...prev,
-                          [detailItem.id]: {
-                            ...draft,
-                            estimated_price: e.target.value,
-                          },
-                        }))
-                      }
-                      placeholder="Ex. 150"
-                    />
-                  </label>
-                  <label className="full">
-                    Description
-                    <textarea
-                      rows={3}
-                      value={draft.description}
-                      onChange={(e) =>
-                        setEditDrafts((prev) => ({
-                          ...prev,
-                          [detailItem.id]: {
-                            ...draft,
-                            description: e.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="modal-actions">
-                  <button
-                    type="button"
-                    onClick={() => void saveItem(detailItem.id)}
-                    disabled={savingItemId === detailItem.id}
-                  >
-                    {savingItemId === detailItem.id
-                      ? "Enregistrement…"
-                      : "Enregistrer"}
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => void deleteItem(detailItem.id)}
-                  >
-                    Supprimer
-                  </button>
-                </div>
-              </div>
-
-              <div className="acc-comments">
-                <h3>Commentaires</h3>
-                <ul className="comment-list">
-                  {comments.length === 0 ? (
-                    <li className="muted">Aucun commentaire.</li>
-                  ) : (
-                    comments.map((c) => (
-                      <li key={c.id}>
-                        <div className="comment-meta">
-                          <strong>{c.user?.name ?? "Inconnu"}</strong>
-                          <span>{formatDate(c.created_at)}</span>
-                        </div>
-                        <p>{c.body}</p>
-                      </li>
-                    ))
-                  )}
-                </ul>
-                <div className="comment-form">
-                  <textarea
-                    rows={2}
-                    placeholder={`Commentaire en tant que ${currentUser.name}…`}
-                    value={commentDrafts[detailItem.id] ?? ""}
-                    onChange={(e) =>
-                      setCommentDrafts((prev) => ({
-                        ...prev,
-                        [detailItem.id]: e.target.value,
-                      }))
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void addComment(detailItem.id)}
-                    disabled={
-                      commentingItemId === detailItem.id ||
-                      !(commentDrafts[detailItem.id] ?? "").trim()
-                    }
-                  >
-                    {commentingItemId === detailItem.id ? "Envoi…" : "Publier"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="acc-history">
-                <h3>Historique des modifications</h3>
-                <ul className="history-list">
-                  {history.length === 0 ? (
-                    <li className="muted">Aucune modification enregistrée.</li>
-                  ) : (
-                    history.map((entry) => (
-                      <li key={entry.id}>
-                        <div className="comment-meta">
-                          <strong>
-                            {entry.action === "created"
-                              ? "Création"
-                              : "Modification"}
-                            {" · "}
-                            {entry.user?.name ?? "Inconnu"}
-                          </strong>
-                          <span>{formatDate(entry.created_at)}</span>
-                        </div>
-                        {entry.action === "updated" &&
-                        Object.keys(entry.changes ?? {}).length > 0 ? (
-                          <ul className="history-changes">
-                            {Object.entries(entry.changes).map(([key, change]) => (
-                              <li key={key}>
-                                <strong>{fieldLabel(key)}</strong> :{" "}
-                                {formatHistoryValue(key, change.from)} →{" "}
-                                {formatHistoryValue(key, change.to)}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="muted">Objet ajouté à l’inventaire.</p>
-                        )}
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </div>
-            </div>
-          </article>
-        </div>
+            {items.map((item) => (
+              <SwiperSlide key={item.id} className="coverflow-slide">
+                <button
+                  type="button"
+                  className="cf-card"
+                  onClick={() => setDetailId(item.id)}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={item.image_url} alt={item.name} />
+                  <div className="cf-caption">
+                    <strong>{item.name}</strong>
+                    <span>
+                      {item.category?.name ?? "Sans catégorie"}
+                      {item.location ? ` · ${item.location}` : ""}
+                      {item.estimated_price != null
+                        ? ` · ${formatPrice(item.estimated_price)}`
+                        : ""}
+                    </span>
+                  </div>
+                </button>
+                <div
+                  className="cf-reflection"
+                  style={{ backgroundImage: `url(${item.image_url})` }}
+                  aria-hidden
+                />
+              </SwiperSlide>
+            ))}
+          </Swiper>
+          <p className="cf-hint">
+            Glisser · clic pour éditer · {activeIndex + 1}/{items.length}
+          </p>
+        </section>
       )}
+
+      <input
+        ref={cameraInputRef}
+        className="sr-only"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => onCameraPick(e.target.files?.[0] ?? null)}
+      />
+
+      <button
+        type="button"
+        className="fab"
+        onClick={() => cameraInputRef.current?.click()}
+      >
+        + Photo
+      </button>
 
       {showAdd && (
         <div className="modal" onClick={closeAdd}>
-          <article className="modal-add" onClick={(e) => e.stopPropagation()}>
+          <article className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h2>Ajouter un objet</h2>
-              <button type="button" className="ghost close-x" onClick={closeAdd}>
+              <h2>Nouvel objet</h2>
+              <button type="button" className="ghost" onClick={closeAdd}>
                 Fermer
               </button>
             </div>
-            <form onSubmit={onSubmit} className="upload-form">
-              <label
-                className={`dropzone ${preview ? "has-preview" : ""}`}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const dropped = e.dataTransfer.files?.[0];
-                  if (dropped?.type.startsWith("image/")) setFile(dropped);
-                }}
-              >
+            <p className="auto-hint">
+              {saveStatus === "saving"
+                ? "Enregistrement automatique…"
+                : "Remplissez le nom : enregistrement auto"}
+            </p>
+            <div className="add-layout">
+              <label className="dropzone compact">
                 {preview ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={preview} alt="Aperçu" />
                 ) : (
-                  <span>
-                    Glissez une photo ici
-                    <br />
-                    ou cliquez pour choisir
-                  </span>
+                  <span>Choisir une photo</span>
                 )}
                 <input
-                  ref={fileInputRef}
                   type="file"
                   accept="image/*"
                   capture="environment"
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  required
                 />
               </label>
-
-              <div className="fields">
+              <div className="fields single">
                 <label>
-                  Nom
+                  Nom *
                   <input
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Ex. Canapé 3 places"
-                    required
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setName(e.target.value);
+                    }}
+                    placeholder="Ex. Canapé"
                     autoFocus
+                    required
                   />
                 </label>
                 <label>
                   Catégorie
                   <select
                     value={categoryId}
-                    onChange={(e) => setCategoryId(e.target.value)}
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setCategoryId(e.target.value);
+                    }}
                   >
                     <option value="">Sans catégorie</option>
                     {categories.map((c) => (
@@ -1064,8 +721,11 @@ export default function InventoryApp() {
                   <input
                     list="known-locations"
                     value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Choisir ou saisir un lieu"
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setLocation(e.target.value);
+                    }}
+                    placeholder="Salon, Cave…"
                     autoComplete="off"
                   />
                 </label>
@@ -1075,7 +735,10 @@ export default function InventoryApp() {
                     type="number"
                     min={0}
                     value={quantity}
-                    onChange={(e) => setQuantity(Number(e.target.value))}
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setQuantity(Number(e.target.value));
+                    }}
                   />
                 </label>
                 <label>
@@ -1085,41 +748,214 @@ export default function InventoryApp() {
                     min={0}
                     step="0.01"
                     value={estimatedPrice}
-                    onChange={(e) => setEstimatedPrice(e.target.value)}
-                    placeholder="Ex. 150"
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setEstimatedPrice(e.target.value);
+                    }}
                   />
                 </label>
                 <label className="full">
-                  Description
+                  Notes
                   <textarea
+                    rows={2}
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Notes, état, numéro de série…"
-                    rows={3}
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setDescription(e.target.value);
+                    }}
                   />
                 </label>
-                <div className="new-cat full">
-                  <input
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    placeholder="Nouvelle catégorie"
-                  />
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => void addCategory()}
-                  >
-                    Créer
-                  </button>
-                </div>
-                <button type="submit" disabled={saving || !file || !name.trim()}>
-                  {saving ? "Enregistrement…" : "Enregistrer"}
-                </button>
               </div>
-            </form>
+            </div>
           </article>
         </div>
       )}
+
+      {detailItem && draft && (
+        <div className="modal" onClick={() => setDetailId(null)}>
+          <article className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>{draft.name || "Objet"}</h2>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setDetailId(null)}
+              >
+                Fermer
+              </button>
+            </div>
+            <p className="auto-hint">
+              {saveStatus === "saving"
+                ? "Enregistrement…"
+                : saveStatus === "saved"
+                  ? "Modifications enregistrées"
+                  : "Les changements s’enregistrent automatiquement"}
+            </p>
+            <div className="detail-simple">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={detailItem.image_url} alt={detailItem.name} />
+              <div className="fields single">
+                <label>
+                  Nom
+                  <input
+                    value={draft.name}
+                    onChange={(e) =>
+                      setDraft({ ...draft, name: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Catégorie
+                  <select
+                    value={draft.category_id}
+                    onChange={(e) =>
+                      setDraft({ ...draft, category_id: e.target.value })
+                    }
+                  >
+                    <option value="">Sans catégorie</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Lieu
+                  <input
+                    list="known-locations"
+                    value={draft.location}
+                    onChange={(e) =>
+                      setDraft({ ...draft, location: e.target.value })
+                    }
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Quantité
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.quantity}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        quantity: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Prix estimé (€)
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={draft.estimated_price}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        estimated_price: e.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="full">
+                  Notes
+                  <textarea
+                    rows={2}
+                    value={draft.description}
+                    onChange={(e) =>
+                      setDraft({ ...draft, description: e.target.value })
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="block">
+              <h3>Commentaires</h3>
+              <ul className="comment-list">
+                {comments.length === 0 ? (
+                  <li className="muted">Aucun pour l’instant.</li>
+                ) : (
+                  comments.map((c) => (
+                    <li key={c.id}>
+                      <div className="comment-meta">
+                        <strong>{c.user?.name ?? "Inconnu"}</strong>
+                        <span>{formatDate(c.created_at)}</span>
+                      </div>
+                      <p>{c.body}</p>
+                    </li>
+                  ))
+                )}
+              </ul>
+              <div className="comment-form">
+                <textarea
+                  rows={2}
+                  placeholder={`En tant que ${currentUser.name}…`}
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => void addComment()}
+                  disabled={!commentText.trim()}
+                >
+                  Publier
+                </button>
+              </div>
+            </div>
+
+            <div className="block">
+              <h3>Historique</h3>
+              <ul className="history-list">
+                {history.length === 0 ? (
+                  <li className="muted">Aucune modification.</li>
+                ) : (
+                  history.slice(0, 8).map((entry) => (
+                    <li key={entry.id}>
+                      <div className="comment-meta">
+                        <strong>
+                          {entry.action === "created"
+                            ? "Création"
+                            : "Modification"}{" "}
+                          · {entry.user?.name ?? "Inconnu"}
+                        </strong>
+                        <span>{formatDate(entry.created_at)}</span>
+                      </div>
+                      {entry.action === "updated" &&
+                        Object.keys(entry.changes ?? {}).length > 0 && (
+                          <ul className="history-changes">
+                            {Object.entries(entry.changes).map(
+                              ([key, change]) => (
+                                <li key={key}>
+                                  {fieldLabel(key)} :{" "}
+                                  {formatHistoryValue(key, change.from)} →{" "}
+                                  {formatHistoryValue(key, change.to)}
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        )}
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+
+            <button
+              type="button"
+              className="danger full-btn"
+              onClick={() => void deleteItem(detailItem.id)}
+            >
+              Supprimer
+            </button>
+          </article>
+        </div>
+      )}
+
+      <footer className="site-footer">© MK 2026</footer>
     </main>
   );
 }

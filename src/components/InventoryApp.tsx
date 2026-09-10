@@ -49,6 +49,7 @@ export default function InventoryApp() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<string[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -123,16 +124,18 @@ export default function InventoryApp() {
       if (query.trim()) params.set("q", query.trim());
       if (categoryFilter) params.set("category", categoryFilter);
 
-      const [catRes, itemRes, userRes] = await Promise.all([
+      const [catRes, itemRes, userRes, locRes] = await Promise.all([
         fetch("/api/categories", { headers: authHeaders(pwd) }),
         fetch(`/api/items?${params}`, { headers: authHeaders(pwd) }),
         fetch("/api/users", { headers: authHeaders(pwd) }),
+        fetch("/api/locations", { headers: authHeaders(pwd) }),
       ]);
 
       if (
         catRes.status === 401 ||
         itemRes.status === 401 ||
-        userRes.status === 401
+        userRes.status === 401 ||
+        locRes.status === 401
       ) {
         setUnlocked(false);
         sessionStorage.removeItem(PASSWORD_KEY);
@@ -142,13 +145,16 @@ export default function InventoryApp() {
       const catJson = await catRes.json();
       const itemJson = await itemRes.json();
       const userJson = await userRes.json();
+      const locJson = await locRes.json();
 
       if (!catRes.ok) throw new Error(catJson.error || "Erreur catégories");
       if (!itemRes.ok) throw new Error(itemJson.error || "Erreur inventaire");
       if (!userRes.ok) throw new Error(userJson.error || "Erreur utilisateurs");
+      if (!locRes.ok) throw new Error(locJson.error || "Erreur lieux");
 
       const nextItems: InventoryItem[] = itemJson.items ?? [];
       setCategories(catJson.categories ?? []);
+      setLocations(locJson.locations ?? []);
       setItems(nextItems);
       setUsers(userJson.users ?? []);
       setUnlocked(true);
@@ -551,6 +557,12 @@ export default function InventoryApp() {
 
       {error && <p className="error banner">{error}</p>}
 
+      <datalist id="known-locations">
+        {locations.map((loc) => (
+          <option key={loc} value={loc} />
+        ))}
+      </datalist>
+
       <section className="filters-bar">
         <div className="filters">
           <label className="filter-field">
@@ -762,6 +774,7 @@ export default function InventoryApp() {
                   <label>
                     Lieu
                     <input
+                      list="known-locations"
                       value={draft.location}
                       onChange={(e) =>
                         setEditDrafts((prev) => ({
@@ -772,6 +785,8 @@ export default function InventoryApp() {
                           },
                         }))
                       }
+                      placeholder="Choisir ou saisir un lieu"
+                      autoComplete="off"
                     />
                   </label>
                   <label>
@@ -941,9 +956,11 @@ export default function InventoryApp() {
                 <label>
                   Lieu
                   <input
+                    list="known-locations"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Ex. Salon, Cave, Garage"
+                    placeholder="Choisir ou saisir un lieu"
+                    autoComplete="off"
                   />
                 </label>
                 <label>

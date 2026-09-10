@@ -251,19 +251,6 @@ export default function InventoryApp() {
     })();
   }, [detailItem?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-save édition
-  useEffect(() => {
-    if (!detailItem || !draft || !currentUser) return;
-    if (!isDraftDirty(detailItem, draft) || !draft.name.trim()) return;
-    if (editSavingRef.current) return;
-
-    const t = setTimeout(() => {
-      void saveItem(detailItem.id, draft);
-    }, 700);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, detailItem?.id]);
-
   // Auto-save création (photo + nom)
   useEffect(() => {
     if (!showAdd || !file || !name.trim() || !currentUser) return;
@@ -372,7 +359,7 @@ export default function InventoryApp() {
   }
 
   async function saveItem(itemId: string, current: Draft) {
-    if (editSavingRef.current || !current.name.trim()) return;
+    if (editSavingRef.current || !current.name.trim()) return false;
     editSavingRef.current = true;
     setSaveStatus("saving");
     setError(null);
@@ -408,12 +395,26 @@ export default function InventoryApp() {
       const hJson = await hRes.json();
       if (hRes.ok) setHistory(hJson.history ?? []);
       setTimeout(() => setSaveStatus("idle"), 1200);
+      return true;
     } catch (err) {
       setSaveStatus("idle");
       setError(err instanceof Error ? err.message : "Erreur de mise à jour");
+      return false;
     } finally {
       editSavingRef.current = false;
     }
+  }
+
+  async function closeDetail() {
+    if (detailItem && draft && isDraftDirty(detailItem, draft)) {
+      if (!draft.name.trim()) {
+        setError("Le nom est obligatoire");
+        return;
+      }
+      const ok = await saveItem(detailItem.id, draft);
+      if (!ok) return;
+    }
+    setDetailId(null);
   }
 
   async function addComment() {
@@ -862,14 +863,21 @@ export default function InventoryApp() {
       )}
 
       {detailItem && draft && (
-        <div className="modal" onClick={() => setDetailId(null)}>
+        <div
+          className="modal"
+          onClick={() => {
+            void closeDetail();
+          }}
+        >
           <article className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h2>{draft.name || "Objet"}</h2>
               <button
                 type="button"
                 className="ghost"
-                onClick={() => setDetailId(null)}
+                onClick={() => {
+                  void closeDetail();
+                }}
               >
                 Fermer
               </button>
@@ -877,9 +885,7 @@ export default function InventoryApp() {
             <p className="auto-hint">
               {saveStatus === "saving"
                 ? "Enregistrement…"
-                : saveStatus === "saved"
-                  ? "Modifications enregistrées"
-                  : "Les changements s’enregistrent automatiquement"}
+                : "Les modifications s’enregistrent à la fermeture"}
             </p>
             <div className="detail-simple">
               {/* eslint-disable-next-line @next/next/no-img-element */}

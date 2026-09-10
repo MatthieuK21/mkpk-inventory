@@ -243,44 +243,40 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  align-items: center;
+  align-items: end;
   flex-wrap: wrap;
+  margin-bottom: 0.75rem;
 }
 
-.search {
-  max-width: 280px;
-}
-
-.chips {
+.filters {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 0.5rem;
-  margin: 1rem 0;
-  overflow-x: auto;
-  padding-bottom: 0.35rem;
-  -webkit-overflow-scrolling: touch;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
 }
 
-.chip {
-  background: white;
-  color: var(--ink);
-  border: 1px solid var(--line);
-  padding: 0.45rem 0.85rem;
-  font-size: 0.85rem;
-  white-space: nowrap;
-  flex: 0 0 auto;
+.filter-field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-width: min(220px, 100%);
 }
 
-.chip em {
-  font-style: normal;
-  margin-left: 0.45rem;
-  opacity: 0.55;
+.filter-field select,
+.filter-field input {
+  min-width: 200px;
 }
 
-.chip.active {
-  background: var(--chip, var(--accent));
-  color: white;
-  border-color: transparent;
+button.ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid rgba(47, 111, 94, 0.35);
+  padding: 0.7rem 1rem;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: rgba(47, 111, 94, 0.08);
 }
 
 .new-cat {

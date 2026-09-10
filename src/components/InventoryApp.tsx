@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Category, InventoryItem } from "@/lib/types";
 
 const PASSWORD_KEY = "mkpk-inventory-password";
@@ -105,15 +105,7 @@ export default function InventoryApp() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  const counts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const item of items) {
-      if (item.category_id) {
-        map.set(item.category_id, (map.get(item.category_id) ?? 0) + 1);
-      }
-    }
-    return map;
-  }, [items]);
+  const hasFilters = Boolean(query.trim() || categoryFilter);
 
   function unlock(e: FormEvent) {
     e.preventDefault();
@@ -343,34 +335,42 @@ export default function InventoryApp() {
       <section className="panel">
         <div className="toolbar">
           <h2>Galerie</h2>
-          <input
-            className="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher…"
-          />
-        </div>
-
-        <div className="chips">
-          <button
-            type="button"
-            className={!categoryFilter ? "chip active" : "chip"}
-            onClick={() => setCategoryFilter("")}
-          >
-            Tout
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className={categoryFilter === c.id ? "chip active" : "chip"}
-              style={{ ["--chip" as string]: c.color }}
-              onClick={() => setCategoryFilter(c.id)}
-            >
-              {c.name}
-              <em>{counts.get(c.id) ?? 0}</em>
-            </button>
-          ))}
+          <div className="filters">
+            <label className="filter-field">
+              <span>Catégorie</span>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="">Toutes les catégories</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Recherche</span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Nom, lieu, description…"
+              />
+            </label>
+            {hasFilters && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setQuery("");
+                  setCategoryFilter("");
+                }}
+              >
+                Réinitialiser
+              </button>
+            )}
+          </div>
         </div>
 
         <form className="new-cat" onSubmit={addCategory}>
@@ -385,7 +385,11 @@ export default function InventoryApp() {
         {loading ? (
           <p className="muted">Chargement…</p>
         ) : items.length === 0 ? (
-          <p className="muted empty">Aucun objet pour le moment.</p>
+          <p className="muted empty">
+            {hasFilters
+              ? "Aucun objet ne correspond à ces filtres."
+              : "Aucun objet pour le moment."}
+          </p>
         ) : (
           <div className="grid">
             {items.map((item) => (

@@ -97,6 +97,7 @@ export default function InventoryApp() {
     "idle",
   );
   const [showAdd, setShowAdd] = useState(false);
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newUserName, setNewUserName] = useState("");
@@ -118,6 +119,7 @@ export default function InventoryApp() {
 
   const swiperRef = useRef<SwiperType | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const addSavingRef = useRef(false);
   const editSavingRef = useRef(false);
 
@@ -305,6 +307,7 @@ export default function InventoryApp() {
     setFile(null);
     addSavingRef.current = false;
     if (cameraInputRef.current) cameraInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
   }
 
   function closeAdd() {
@@ -313,11 +316,22 @@ export default function InventoryApp() {
     setSaveStatus("idle");
   }
 
-  function onCameraPick(selected: File | null) {
+  function onImagePick(selected: File | null) {
     if (!selected) return;
     setFile(selected);
+    setShowSourcePicker(false);
     setShowAdd(true);
     addSavingRef.current = false;
+  }
+
+  function openCamera() {
+    setShowSourcePicker(false);
+    requestAnimationFrame(() => cameraInputRef.current?.click());
+  }
+
+  function openGallery() {
+    setShowSourcePicker(false);
+    requestAnimationFrame(() => galleryInputRef.current?.click());
   }
 
   async function createItem() {
@@ -665,16 +679,51 @@ export default function InventoryApp() {
         type="file"
         accept="image/*"
         capture="environment"
-        onChange={(e) => onCameraPick(e.target.files?.[0] ?? null)}
+        onChange={(e) => onImagePick(e.target.files?.[0] ?? null)}
+      />
+      <input
+        ref={galleryInputRef}
+        className="sr-only"
+        type="file"
+        accept="image/*"
+        onChange={(e) => onImagePick(e.target.files?.[0] ?? null)}
       />
 
       <button
         type="button"
         className="fab"
-        onClick={() => cameraInputRef.current?.click()}
+        onClick={() => setShowSourcePicker(true)}
       >
         + Photo
       </button>
+
+      {showSourcePicker && (
+        <div className="modal" onClick={() => setShowSourcePicker(false)}>
+          <article
+            className="sheet source-sheet"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Ajouter une photo</h2>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setShowSourcePicker(false)}
+              >
+                Fermer
+              </button>
+            </div>
+            <div className="source-actions">
+              <button type="button" className="source-btn" onClick={openCamera}>
+                Prendre une photo
+              </button>
+              <button type="button" className="source-btn" onClick={openGallery}>
+                Choisir dans la galerie
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
 
       {showAdd && (
         <div className="modal" onClick={closeAdd}>
@@ -691,20 +740,24 @@ export default function InventoryApp() {
                 : "Remplissez le nom : enregistrement auto"}
             </p>
             <div className="add-layout">
-              <label className="dropzone compact">
-                {preview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={preview} alt="Aperçu" />
-                ) : (
-                  <span>Choisir une photo</span>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-              </label>
+              <div className="photo-picker">
+                <label className="dropzone compact">
+                  {preview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={preview} alt="Aperçu" />
+                  ) : (
+                    <span>Aperçu photo</span>
+                  )}
+                </label>
+                <div className="source-actions inline">
+                  <button type="button" className="ghost" onClick={openCamera}>
+                    Caméra
+                  </button>
+                  <button type="button" className="ghost" onClick={openGallery}>
+                    Galerie
+                  </button>
+                </div>
+              </div>
               <div className="fields single">
                 <label>
                   Nom *

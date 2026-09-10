@@ -1,0 +1,457 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #eef3ef;
+  --bg-2: #e4ebe4;
+  --panel: rgba(255, 255, 255, 0.78);
+  --ink: #1c2b24;
+  --muted: #5d6f66;
+  --accent: #2f6f5e;
+  --accent-2: #1f4f43;
+  --line: rgba(28, 43, 36, 0.12);
+  --danger: #9b3b2f;
+  --shadow: 0 18px 50px rgba(28, 43, 36, 0.08);
+  --radius: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  font-family: var(--font-body), "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #d7e8dc 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #c9d9d1 0%, transparent 50%),
+    linear-gradient(180deg, var(--bg), var(--bg-2));
+  background-attachment: fixed;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+code {
+  font-size: 0.9em;
+  background: rgba(47, 111, 94, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+}
+
+.app,
+.setup,
+.gate {
+  width: min(1100px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2rem 0 4rem;
+}
+
+.brand {
+  margin: 0;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  margin: 0.2rem 0 0.4rem;
+}
+
+h1 {
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+h2 {
+  font-size: 1.35rem;
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+  animation: rise 0.55s ease both;
+}
+
+.stat {
+  display: grid;
+  place-items: center;
+  min-width: 5.5rem;
+  padding: 0.9rem 1rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  box-shadow: var(--shadow);
+}
+
+.stat strong {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.stat span {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+.panel {
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow);
+  animation: rise 0.65s ease both;
+}
+
+.upload {
+  animation-delay: 0.05s;
+}
+
+.upload-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+.dropzone {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  border: 1.5px dashed rgba(47, 111, 94, 0.45);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(47, 111, 94, 0.05), transparent),
+    #f7faf7;
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.dropzone:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.dropzone.has-preview {
+  border-style: solid;
+}
+
+.dropzone img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.dropzone input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  align-content: start;
+}
+
+.fields label,
+.gate-card label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.fields .full,
+.fields button {
+  grid-column: 1 / -1;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: white;
+  color: var(--ink);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid rgba(47, 111, 94, 0.25);
+  border-color: var(--accent);
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.8rem 1.2rem;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-2);
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.search {
+  max-width: 280px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.chip {
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+}
+
+.chip em {
+  font-style: normal;
+  margin-left: 0.45rem;
+  opacity: 0.55;
+}
+
+.chip.active {
+  background: var(--chip, var(--accent));
+  color: white;
+  border-color: transparent;
+}
+
+.new-cat {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  max-width: 420px;
+}
+
+.new-cat button {
+  white-space: nowrap;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.9rem;
+}
+
+.card {
+  display: grid;
+  gap: 0.65rem;
+  text-align: left;
+  background: white;
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 0.55rem;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  animation: fade 0.4s ease both;
+}
+
+.card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #dfe8e2;
+}
+
+.card strong {
+  display: block;
+  font-size: 0.98rem;
+}
+
+.card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 28, 22, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  z-index: 40;
+  animation: fade 0.2s ease both;
+}
+
+.modal article {
+  width: min(720px, 100%);
+  background: white;
+  border-radius: 20px;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  box-shadow: var(--shadow);
+}
+
+.modal img {
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  object-fit: cover;
+  background: #dfe8e2;
+}
+
+.modal-body {
+  padding: 1.25rem;
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+
+.tag {
+  display: inline-block;
+  color: white;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.danger {
+  background: var(--danger);
+}
+
+.error {
+  color: var(--danger);
+}
+
+.banner {
+  background: rgba(155, 59, 47, 0.08);
+  border: 1px solid rgba(155, 59, 47, 0.2);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.empty {
+  padding: 1.5rem 0;
+}
+
+.gate,
+.setup {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.gate-card {
+  width: min(420px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 1.75rem;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 0.75rem;
+  animation: rise 0.5s ease both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 820px) {
+  .upload-form,
+  .modal article {
+    grid-template-columns: 1fr;
+  }
+
+  .fields {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .modal img {
+    min-height: 220px;
+    max-height: 280px;
+  }
+}

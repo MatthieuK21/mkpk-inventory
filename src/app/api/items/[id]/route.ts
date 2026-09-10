@@ -6,6 +6,7 @@ import {
   recordItemHistory,
 } from "@/lib/history";
 import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
+import { isItemOwner } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -37,8 +38,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
     if ("owner" in body) {
       const ownerRaw = String(body.owner ?? "").trim();
-      updates.owner =
-        ownerRaw === "Pierre" || ownerRaw === "LUCEKA" ? ownerRaw : null;
+      updates.owner = isItemOwner(ownerRaw) ? ownerRaw : null;
     }
 
     if (Object.keys(updates).length === 0) {

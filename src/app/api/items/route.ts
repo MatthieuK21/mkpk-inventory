@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkPassword, unauthorized } from "@/lib/auth";
 import { parsePrice, recordItemHistory } from "@/lib/history";
 import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
+import { isItemOwner } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   if (!checkPassword(request)) return unauthorized();
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
       query = query.eq("category_id", categoryId);
     }
 
-    if (owner === "Pierre" || owner === "LUCEKA") {
+    if (owner && isItemOwner(owner)) {
       query = query.eq("owner", owner);
     }
 
@@ -62,8 +63,7 @@ export async function POST(request: NextRequest) {
     const categoryId = String(form.get("category_id") ?? "").trim() || null;
     const estimatedPrice = parsePrice(form.get("estimated_price"));
     const ownerRaw = String(form.get("owner") ?? "").trim();
-    const owner =
-      ownerRaw === "Pierre" || ownerRaw === "LUCEKA" ? ownerRaw : null;
+    const owner = isItemOwner(ownerRaw) ? ownerRaw : null;
     const userId = String(form.get("user_id") ?? "").trim() || null;
 
     if (!name) {

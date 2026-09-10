@@ -31,9 +31,19 @@ export type ItemHistoryEntry = {
   change_labels?: string[];
 };
 
-export type ItemOwner = "Pierre" | "LUCEKA";
+export const ITEM_OWNERS = [
+  "Pierre",
+  "LUCEKA",
+  "Gwladys",
+  "Célia",
+  "Lucie",
+] as const;
 
-export const ITEM_OWNERS: ItemOwner[] = ["Pierre", "LUCEKA"];
+export type ItemOwner = (typeof ITEM_OWNERS)[number];
+
+export function isItemOwner(value: string): value is ItemOwner {
+  return (ITEM_OWNERS as readonly string[]).includes(value);
+}
 
 export type InventoryItem = {
   id: string;

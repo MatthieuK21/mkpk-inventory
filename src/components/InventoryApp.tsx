@@ -124,6 +124,7 @@ export default function InventoryApp() {
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
@@ -184,6 +185,7 @@ export default function InventoryApp() {
       if (query.trim()) params.set("q", query.trim());
       if (categoryFilter) params.set("category", categoryFilter);
       if (ownerFilter) params.set("owner", ownerFilter);
+      if (locationFilter) params.set("location", locationFilter);
 
       const [catRes, itemRes, userRes, locRes] = await Promise.all([
         fetch("/api/categories", { headers: authHeaders(effectivePwd) }),
@@ -262,7 +264,15 @@ export default function InventoryApp() {
     const t = setTimeout(() => void loadData(), 180);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unlocked, configured, currentUser, query, categoryFilter, ownerFilter]);
+  }, [
+    unlocked,
+    configured,
+    currentUser,
+    query,
+    categoryFilter,
+    ownerFilter,
+    locationFilter,
+  ]);
 
   useEffect(() => {
     if (!file) {
@@ -648,6 +658,19 @@ export default function InventoryApp() {
             </option>
           ))}
         </select>
+        <select
+          className="menubar-select"
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+          aria-label="Lieu"
+        >
+          <option value="">Lieux</option>
+          {locations.map((loc) => (
+            <option key={loc} value={loc}>
+              {loc}
+            </option>
+          ))}
+        </select>
         <span className="menubar-meta" aria-live="polite">
           {saveStatus === "saving"
             ? "…"
@@ -683,13 +706,22 @@ export default function InventoryApp() {
             centeredSlides
             slidesPerView="auto"
             initialSlide={activeIndex}
+            speed={620}
+            resistanceRatio={0.65}
+            threshold={4}
             keyboard={{ enabled: true }}
-            mousewheel={{ forceToAxis: true, sensitivity: 1, releaseOnEdges: true }}
+            mousewheel={{
+              forceToAxis: true,
+              sensitivity: 0.85,
+              releaseOnEdges: true,
+              thresholdDelta: 6,
+              thresholdTime: 40,
+            }}
             coverflowEffect={{
-              rotate: 18,
-              stretch: -12,
-              depth: 120,
-              modifier: 1,
+              rotate: 16,
+              stretch: -18,
+              depth: 140,
+              modifier: 1.05,
               slideShadows: true,
             }}
             onSwiper={(swiper) => {

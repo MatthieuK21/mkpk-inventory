@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabaseAdmin();
     const categoryId = request.nextUrl.searchParams.get("category");
     const owner = request.nextUrl.searchParams.get("owner");
+    const location = request.nextUrl.searchParams.get("location")?.trim();
     const q = request.nextUrl.searchParams.get("q")?.trim();
 
     let query = supabase
@@ -24,6 +25,10 @@ export async function GET(request: NextRequest) {
 
     if (owner && isItemOwner(owner)) {
       query = query.eq("owner", owner);
+    }
+
+    if (location) {
+      query = query.eq("location", location);
     }
 
     if (q) {

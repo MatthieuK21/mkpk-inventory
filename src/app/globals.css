@@ -295,9 +295,42 @@ h3 {
   text-wrap: balance;
 }
 
+.location-bubble-address {
+  font-size: 0.78rem;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.72);
+  text-wrap: balance;
+  max-width: 12ch;
+  margin: 0 auto;
+}
+
 .location-bubble-count {
   font-size: 0.84rem;
   color: rgba(255, 255, 255, 0.78);
+}
+
+.orphan-sheet {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.orphan-sheet p {
+  margin: 0;
+  color: rgba(21, 32, 27, 0.78);
+  line-height: 1.45;
+}
+
+.orphan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
+.orphan-actions .danger {
+  background: #9b3b2f;
+  color: #fff;
+  border-color: #9b3b2f;
 }
 
 .coverflow-stage.stage-fill {

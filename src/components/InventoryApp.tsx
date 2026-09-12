@@ -20,6 +20,7 @@ import {
   formatPrice,
 } from "@/lib/history";
 import type { AuthUser } from "@/lib/auth-types";
+import type { LocationRecord } from "@/lib/locations";
 import {
   clearSession,
   readSessionToken,
@@ -39,6 +40,7 @@ const NO_LOCATION_KEY = "__none__";
 type LocationBubble = {
   key: string;
   label: string;
+  address: string | null;
   count: number;
   coverUrl: string | null;
 };
@@ -47,6 +49,7 @@ type Draft = {
   name: string;
   description: string;
   location: string;
+  address: string;
   quantity: number;
   category_id: string;
   estimated_price: string;
@@ -69,6 +72,7 @@ function draftFromItem(item: InventoryItem): Draft {
     name: item.name,
     description: item.description ?? "",
     location: item.location ?? "",
+    address: "",
     quantity: item.quantity,
     category_id: item.category_id ?? "",
     estimated_price:
@@ -91,7 +95,9 @@ export default function InventoryApp() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [pwdForm, setPwdForm] = useState({ current: "", next: "", confirm: "" });
   const [categories, setCategories] = useState<Category[]>([]);
-  const [locations, setLocations] = useState<string[]>([]);
+  const [locations, setLocations] = useState<LocationRecord[]>([]);
+  const [locationAddress, setLocationAddress] = useState("");
+  const [orphanPrompt, setOrphanPrompt] = useState<LocationRecord | null>(null);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -132,7 +138,52 @@ export default function InventoryApp() {
     ? (items.find((item) => item.id === detailId) ?? null)
     : null;
 
+
+  function addressForTitle(title: string): string {
+    const key = title.trim().toLowerCase();
+    if (!key) return "";
+    return (
+      locations.find((loc) => loc.title.toLowerCase() === key)?.address ?? ""
+    );
+  }
+
+  async function maybePromptOrphan(orphaned: LocationRecord | null | undefined) {
+    if (!orphaned?.title) return;
+    setOrphanPrompt(orphaned);
+  }
+
+  async function confirmDeleteOrphan(keep: boolean) {
+    const target = orphanPrompt;
+    setOrphanPrompt(null);
+    if (!target || keep) {
+      await loadData();
+      return;
+    }
+    try {
+      const res = await fetch("/api/locations", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...sessionHeaders(),
+        },
+        body: JSON.stringify({ id: target.id, title: target.title }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Suppression du lieu impossible");
+      if (selectedLocation && selectedLocation.toLowerCase() === target.title.toLowerCase()) {
+        setSelectedLocation(null);
+      }
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur suppression lieu");
+      await loadData();
+    }
+  }
+
   const locationBubbles = useMemo(() => {
+    const addressMap = new Map(
+      locations.map((loc) => [loc.title.toLowerCase(), loc.address]),
+    );
     const map = new Map<string, LocationBubble>();
     for (const item of items) {
       const key = item.location?.trim() || NO_LOCATION_KEY;
@@ -142,6 +193,10 @@ export default function InventoryApp() {
         map.set(key, {
           key,
           label,
+          address:
+            key === NO_LOCATION_KEY
+              ? null
+              : addressMap.get(key.toLowerCase()) ?? null,
           count: 1,
           coverUrl: item.image_url ?? null,
         });
@@ -152,10 +207,16 @@ export default function InventoryApp() {
         }
       }
     }
+    // Inclure les lieux connus sans objet (catalogue)
+    for (const loc of locations) {
+      const key = loc.title.trim();
+      if (!key || map.has(key)) continue;
+      // Ne pas afficher les lieux vides sur la carte — seulement dans la liste de choix
+    }
     return [...map.values()].sort((a, b) =>
       a.label.localeCompare(b.label, "fr", { sensitivity: "base" }),
     );
-  }, [items]);
+  }, [items, locations]);
 
   const visibleItems = useMemo(() => {
     if (selectedLocation === null) return [];
@@ -238,7 +299,20 @@ export default function InventoryApp() {
 
       const nextItems: InventoryItem[] = itemJson.items ?? [];
       setCategories(catJson.categories ?? []);
-      setLocations(locJson.locations ?? []);
+      setLocations(
+        Array.isArray(locJson.locations)
+          ? locJson.locations.map((loc: LocationRecord | string) =>
+              typeof loc === "string"
+                ? {
+                    id: loc,
+                    title: loc,
+                    address: null,
+                    created_at: "",
+                  }
+                : loc,
+            )
+          : [],
+      );
       setItems(nextItems);
       setActiveIndex((i) =>
         nextItems.length === 0 ? 0 : Math.min(i, nextItems.length - 1),
@@ -278,7 +352,11 @@ export default function InventoryApp() {
       setDraft(null);
       return;
     }
-    setDraft(draftFromItem(detailItem));
+    const next = draftFromItem(detailItem);
+      next.address = detailItem.location
+        ? addressForTitle(detailItem.location)
+        : "";
+      setDraft(next);
     setCommentText("");
     void (async () => {
       try {
@@ -409,6 +487,7 @@ export default function InventoryApp() {
     setName("");
     setDescription("");
     setLocation("");
+    setLocationAddress("");
     setQuantity(1);
     setEstimatedPrice("");
     setOwner("");
@@ -454,6 +533,9 @@ export default function InventoryApp() {
       form.set("name", name.trim());
       form.set("description", description.trim());
       form.set("location", location.trim());
+      if (locationAddress.trim() || location.trim()) {
+        form.set("address", locationAddress.trim());
+      }
       form.set("quantity", String(quantity));
       form.set("user_id", currentUser.id);
       if (estimatedPrice.trim()) form.set("estimated_price", estimatedPrice.trim());
@@ -496,6 +578,7 @@ export default function InventoryApp() {
           name: current.name.trim(),
           description: current.description,
           location: current.location,
+          address: current.address,
           quantity: current.quantity,
           category_id: current.category_id || null,
           estimated_price: current.estimated_price,
@@ -509,8 +592,14 @@ export default function InventoryApp() {
       setItems((prev) =>
         prev.map((item) => (item.id === itemId ? json.item : item)),
       );
-      setDraft(draftFromItem(json.item));
+      const nextDraft = draftFromItem(json.item);
+      nextDraft.address =
+        json.item.location
+          ? addressForTitle(json.item.location) || current.address
+          : "";
+      setDraft(nextDraft);
       setSaveStatus("saved");
+      await maybePromptOrphan(json.orphanedLocation);
       const hRes = await fetch(`/api/items/${itemId}/history`, {
         headers: sessionHeaders(),
       });
@@ -576,7 +665,11 @@ export default function InventoryApp() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Suppression impossible");
       setDetailId(null);
-      await loadData();
+      if (json.orphanedLocation) {
+        await maybePromptOrphan(json.orphanedLocation);
+      } else {
+        await loadData();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur suppression");
     }
@@ -740,14 +833,16 @@ export default function InventoryApp() {
       <AdminUsersPanel
         open={showAdmin}
         onClose={() => setShowAdmin(false)}
-        knownLocations={locations}
+        knownLocations={locations.map((loc) => loc.title)}
       />
 
       {error && <p className="error banner menubar-error">{error}</p>}
 
       <datalist id="known-locations">
         {locations.map((loc) => (
-          <option key={loc} value={loc} />
+          <option key={loc.id} value={loc.title}>
+            {loc.address ? loc.address : loc.title}
+          </option>
         ))}
       </datalist>
 
@@ -782,6 +877,9 @@ export default function InventoryApp() {
                 />
                 <span className="location-bubble-body">
                   <span className="location-bubble-name">{bubble.label}</span>
+                  {bubble.address ? (
+                    <span className="location-bubble-address">{bubble.address}</span>
+                  ) : null}
                   <span className="location-bubble-count">
                     {bubble.count} objet{bubble.count > 1 ? "s" : ""}
                   </span>
@@ -995,16 +1093,31 @@ export default function InventoryApp() {
                   </select>
                 </label>
                 <label>
-                  Lieu
+                  Titre du lieu
                   <input
                     list="known-locations"
                     value={location}
                     onChange={(e) => {
                       addSavingRef.current = false;
-                      setLocation(e.target.value);
+                      const title = e.target.value;
+                      setLocation(title);
+                      const known = addressForTitle(title);
+                      if (known) setLocationAddress(known);
                     }}
-                    placeholder="Salon, Cave…"
+                    placeholder="Maison, Cave…"
                     autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Adresse du lieu
+                  <input
+                    value={locationAddress}
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setLocationAddress(e.target.value);
+                    }}
+                    placeholder="12 rue…, bâtiment B…"
+                    autoComplete="street-address"
                   />
                 </label>
                 <label>
@@ -1121,14 +1234,31 @@ export default function InventoryApp() {
                   </select>
                 </label>
                 <label>
-                  Lieu
+                  Titre du lieu
                   <input
                     list="known-locations"
                     value={draft.location}
-                    onChange={(e) =>
-                      setDraft({ ...draft, location: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const title = e.target.value;
+                      const known = addressForTitle(title);
+                      setDraft({
+                        ...draft,
+                        location: title,
+                        address: known || draft.address,
+                      });
+                    }}
                     autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Adresse du lieu
+                  <input
+                    value={draft.address}
+                    onChange={(e) =>
+                      setDraft({ ...draft, address: e.target.value })
+                    }
+                    placeholder="12 rue…, bâtiment B…"
+                    autoComplete="street-address"
                   />
                 </label>
                 <label>
@@ -1275,6 +1405,46 @@ export default function InventoryApp() {
       )}
 
       <footer className="site-footer shell-footer">© MK 2026</footer>
-    </main>
+    
+      {orphanPrompt && (
+        <div className="modal" onClick={() => void confirmDeleteOrphan(true)}>
+          <article
+            className="sheet orphan-sheet"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Lieu sans objet</h2>
+            </div>
+            <p>
+              Le lieu <strong>{orphanPrompt.title}</strong>
+              {orphanPrompt.address ? (
+                <>
+                  {" "}
+                  ({orphanPrompt.address})
+                </>
+              ) : null}{" "}
+              n&apos;a plus aucun objet. Voulez-vous le supprimer de la liste
+              ?
+            </p>
+            <div className="orphan-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void confirmDeleteOrphan(true)}
+              >
+                Conserver
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void confirmDeleteOrphan(false)}
+              >
+                Supprimer le lieu
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
+</main>
   );
 }

@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
       response,
       deviceLabel: body.deviceLabel ? String(body.deviceLabel) : undefined,
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      user: { ...auth.user, has_webauthn: true },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur serveur";
     return NextResponse.json({ error: message }, { status: 400 });

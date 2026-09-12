@@ -24,6 +24,7 @@ function toAuthUser(row: {
     must_change_password: Boolean(row.must_change_password),
     created_at: row.created_at,
     has_password: Boolean(row.password_hash),
+    has_webauthn: false,
   };
 }
 
@@ -51,13 +52,17 @@ async function enrichUsers(users: AuthUser[]): Promise<AdminUser[]> {
     credCount.set(row.user_id, (credCount.get(row.user_id) ?? 0) + 1);
   }
 
-  return users.map((user) => ({
-    ...user,
-    locations: (locMap.get(user.id) ?? []).sort((a, b) =>
-      a.localeCompare(b, "fr"),
-    ),
-    webauthn_count: credCount.get(user.id) ?? 0,
-  }));
+  return users.map((user) => {
+    const webauthn_count = credCount.get(user.id) ?? 0;
+    return {
+      ...user,
+      has_webauthn: webauthn_count > 0,
+      locations: (locMap.get(user.id) ?? []).sort((a, b) =>
+        a.localeCompare(b, "fr"),
+      ),
+      webauthn_count,
+    };
+  });
 }
 
 export async function GET(request: NextRequest) {

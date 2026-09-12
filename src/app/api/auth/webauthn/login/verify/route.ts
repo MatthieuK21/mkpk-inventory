@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
       must_change_password: Boolean(row.must_change_password),
       created_at: row.created_at,
       has_password: Boolean(row.password_hash),
+      has_webauthn: true,
     };
 
     const token = createSessionToken({

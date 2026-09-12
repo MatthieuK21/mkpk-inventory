@@ -388,16 +388,7 @@ export default function InventoryApp() {
       // Fiche ouverte sans modif locale : resynchroniser le brouillon
       if (silent && openId && openDraft && !openWasDirty) {
         const fresh = nextItems.find((item) => item.id === openId);
-        if (fresh) {
-          const nextDraft = draftFromItem(fresh);
-          const key = (fresh.location ?? "").trim().toLowerCase();
-          nextDraft.address = key
-            ? (nextLocations.find(
-                (loc: LocationRecord) => loc.title.toLowerCase() === key,
-              )?.address ?? "")
-            : "";
-          setDraft(nextDraft);
-        }
+        if (fresh) setDraft(draftFromItem(fresh));
       }
     } catch (err) {
       // En mode silencieux : ne pas masquer l'écran avec une erreur réseau passagère

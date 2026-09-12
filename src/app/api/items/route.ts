@@ -3,6 +3,7 @@ import { isAuthContext, requireAuth, canAccessLocation } from "@/lib/auth";
 import { parsePrice, recordItemHistory } from "@/lib/history";
 import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
 import { isItemOwner } from "@/lib/types";
+import { upsertLocation } from "@/lib/locations";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -74,6 +75,11 @@ export async function POST(request: NextRequest) {
     const name = String(form.get("name") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
     const location = String(form.get("location") ?? "").trim();
+    const addressRaw = form.get("address");
+    const address =
+      addressRaw === null || addressRaw === undefined
+        ? undefined
+        : String(addressRaw);
     const quantity = Number(form.get("quantity") ?? 1);
     const categoryId = String(form.get("category_id") ?? "").trim() || null;
     const estimatedPrice = parsePrice(form.get("estimated_price"));
@@ -118,6 +124,10 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    }
+
+    if (location) {
+      await upsertLocation({ title: location, address });
     }
 
     const { data, error } = await supabase

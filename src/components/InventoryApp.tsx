@@ -445,6 +445,14 @@ export default function InventoryApp() {
       if (!verifyRes.ok) {
         throw new Error(verifyJson.error || "Échec enregistrement biométrie");
       }
+      if (verifyJson.user) {
+        writeSession(readSessionToken(), verifyJson.user);
+        setCurrentUser(verifyJson.user);
+      } else if (currentUser) {
+        const next = { ...currentUser, has_webauthn: true };
+        writeSession(readSessionToken(), next);
+        setCurrentUser(next);
+      }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 1500);
     } catch (err) {
@@ -817,14 +825,16 @@ export default function InventoryApp() {
             Admin
           </button>
         ) : null}
-        <button
-          type="button"
-          className="menubar-user"
-          onClick={() => void registerMyBiometrics()}
-          title="Enregistrer empreinte ou Face ID"
-        >
-          Bio
-        </button>
+        {!currentUser.has_webauthn ? (
+          <button
+            type="button"
+            className="menubar-user"
+            onClick={() => void registerMyBiometrics()}
+            title="Enregistrer empreinte ou Face ID pour les prochaines connexions"
+          >
+            Bio
+          </button>
+        ) : null}
         <button type="button" className="menubar-user" onClick={disconnect}>
           {currentUser.name}
         </button>

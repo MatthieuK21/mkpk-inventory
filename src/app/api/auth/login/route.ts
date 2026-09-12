@@ -4,17 +4,21 @@ import { createSessionToken } from "@/lib/session";
 import { verifyPassword } from "@/lib/passwords";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { AuthUser } from "@/lib/auth-types";
+import { userHasWebauthn } from "@/lib/auth";
 
-function toPublicUser(row: {
-  id: string;
-  name: string;
-  login: string;
-  role: string;
-  active: boolean;
-  must_change_password: boolean;
-  created_at: string;
-  password_hash?: string | null;
-}): AuthUser {
+function toPublicUser(
+  row: {
+    id: string;
+    name: string;
+    login: string;
+    role: string;
+    active: boolean;
+    must_change_password: boolean;
+    created_at: string;
+    password_hash?: string | null;
+  },
+  hasWebauthn: boolean,
+): AuthUser {
   return {
     id: row.id,
     name: row.name,
@@ -24,6 +28,7 @@ function toPublicUser(row: {
     must_change_password: Boolean(row.must_change_password),
     created_at: row.created_at,
     has_password: Boolean(row.password_hash),
+    has_webauthn: hasWebauthn,
   };
 }
 
@@ -67,7 +72,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = toPublicUser({ ...data, login: data.login });
+    const hasWebauthn = await userHasWebauthn(data.id);
+    const user = toPublicUser({ ...data, login: data.login }, hasWebauthn);
     const token = createSessionToken({
       id: user.id,
       name: user.name,

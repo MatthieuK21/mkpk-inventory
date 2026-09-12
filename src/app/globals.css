@@ -178,6 +178,13 @@ h3 {
   border: 1px solid rgba(143, 214, 191, 0.28);
 }
 
+.menubar-user-label {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  pointer-events: none;
+}
+
 .menubar-user:hover:not(:disabled) {
   background: rgba(143, 214, 191, 0.18);
   transform: none;

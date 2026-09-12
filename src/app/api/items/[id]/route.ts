@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkPassword, unauthorized } from "@/lib/auth";
+import { isAuthContext, requireAuth, canAccessLocation } from "@/lib/auth";
 import {
   buildChanges,
   parsePrice,
@@ -11,7 +11,8 @@ import { isItemOwner } from "@/lib/types";
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: Params) {
-  if (!checkPassword(request)) return unauthorized();
+  const auth = await requireAuth(request);
+  if (!isAuthContext(auth)) return auth;
 
   try {
     const { id } = await params;
@@ -95,7 +96,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {
-  if (!checkPassword(request)) return unauthorized();
+  const auth = await requireAuth(request);
+  if (!isAuthContext(auth)) return auth;
 
   try {
     const { id } = await params;

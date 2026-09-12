@@ -875,6 +875,64 @@ button.danger {
   gap: 0.7rem;
 }
 
+.gate-card .ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.admin-sheet {
+  width: min(640px, 100%);
+  max-height: min(90dvh, 900px);
+  overflow: auto;
+}
+
+.admin-block {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.admin-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-user-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-user-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 88%, white);
+}
+
+.admin-locations {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.admin-actions .danger {
+  color: var(--danger);
+}
+
 .user-list {
   display: flex;
   flex-wrap: wrap;

@@ -133,6 +133,40 @@ export default function InventoryApp() {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const addSavingRef = useRef(false);
   const editSavingRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
+  const showAddRef = useRef(showAdd);
+  const showSourcePickerRef = useRef(showSourcePicker);
+  const showAdminRef = useRef(showAdmin);
+  const orphanPromptRef = useRef(orphanPrompt);
+  const saveStatusRef = useRef(saveStatus);
+  const detailIdRef = useRef(detailId);
+  const draftRef = useRef(draft);
+  const itemsRef = useRef(items);
+
+  useEffect(() => {
+    showAddRef.current = showAdd;
+  }, [showAdd]);
+  useEffect(() => {
+    showSourcePickerRef.current = showSourcePicker;
+  }, [showSourcePicker]);
+  useEffect(() => {
+    showAdminRef.current = showAdmin;
+  }, [showAdmin]);
+  useEffect(() => {
+    orphanPromptRef.current = orphanPrompt;
+  }, [orphanPrompt]);
+  useEffect(() => {
+    saveStatusRef.current = saveStatus;
+  }, [saveStatus]);
+  useEffect(() => {
+    detailIdRef.current = detailId;
+  }, [detailId]);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   const detailItem = detailId
     ? (items.find((item) => item.id === detailId) ?? null)
@@ -265,9 +299,31 @@ export default function InventoryApp() {
     }
   }, []);
 
-  async function loadData() {
-    setLoading(true);
-    setError(null);
+  function shouldDeferBackgroundRefresh() {
+    if (addSavingRef.current || editSavingRef.current) return true;
+    if (saveStatusRef.current === "saving") return true;
+    if (showAddRef.current || showSourcePickerRef.current) return true;
+    if (showAdminRef.current) return true;
+    if (orphanPromptRef.current) return true;
+    const openId = detailIdRef.current;
+    const openDraft = draftRef.current;
+    if (openId && openDraft) {
+      const current = itemsRef.current.find((item) => item.id === openId);
+      if (current && isDraftDirty(current, openDraft)) return true;
+    }
+    return false;
+  }
+
+  async function loadData(options?: { silent?: boolean }) {
+    const silent = Boolean(options?.silent);
+    if (silent) {
+      if (refreshInFlightRef.current) return;
+      if (shouldDeferBackgroundRefresh()) return;
+      refreshInFlightRef.current = true;
+    } else {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
@@ -287,6 +343,9 @@ export default function InventoryApp() {
         throw new Error("Session expirée — reconnectez-vous");
       }
 
+      // Si une édition a démarré pendant le fetch silencieux, on n'applique pas
+      if (silent && shouldDeferBackgroundRefresh()) return;
+
       const [catJson, itemJson, locJson] = await Promise.all([
         catRes.json(),
         itemRes.json(),
@@ -298,29 +357,61 @@ export default function InventoryApp() {
       if (!locRes.ok) throw new Error(locJson.error || "Erreur lieux");
 
       const nextItems: InventoryItem[] = itemJson.items ?? [];
-      setCategories(catJson.categories ?? []);
-      setLocations(
-        Array.isArray(locJson.locations)
-          ? locJson.locations.map((loc: LocationRecord | string) =>
-              typeof loc === "string"
-                ? {
-                    id: loc,
-                    title: loc,
-                    address: null,
-                    created_at: "",
-                  }
-                : loc,
-            )
-          : [],
+      const nextLocations = Array.isArray(locJson.locations)
+        ? locJson.locations.map((loc: LocationRecord | string) =>
+            typeof loc === "string"
+              ? {
+                  id: loc,
+                  title: loc,
+                  address: null,
+                  created_at: "",
+                }
+              : loc,
+          )
+        : [];
+
+      const openId = detailIdRef.current;
+      const openDraft = draftRef.current;
+      const previousOpen = openId
+        ? itemsRef.current.find((item) => item.id === openId)
+        : null;
+      const openWasDirty = Boolean(
+        previousOpen && openDraft && isDraftDirty(previousOpen, openDraft),
       );
+
+      setCategories(catJson.categories ?? []);
+      setLocations(nextLocations);
       setItems(nextItems);
       setActiveIndex((i) =>
         nextItems.length === 0 ? 0 : Math.min(i, nextItems.length - 1),
       );
+
+      // Fiche ouverte sans modif locale : resynchroniser le brouillon
+      if (silent && openId && openDraft && !openWasDirty) {
+        const fresh = nextItems.find((item) => item.id === openId);
+        if (fresh) {
+          const nextDraft = draftFromItem(fresh);
+          const key = (fresh.location ?? "").trim().toLowerCase();
+          nextDraft.address = key
+            ? (nextLocations.find((loc) => loc.title.toLowerCase() === key)
+                ?.address ?? "")
+            : "";
+          setDraft(nextDraft);
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur de chargement");
+      // En mode silencieux : ne pas masquer l'écran avec une erreur réseau passagère
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "Erreur de chargement");
+      } else if (
+        err instanceof Error &&
+        /session expirée/i.test(err.message)
+      ) {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (silent) refreshInFlightRef.current = false;
+      else setLoading(false);
     }
   }
 
@@ -328,6 +419,37 @@ export default function InventoryApp() {
     if (!configured || !currentUser || currentUser.must_change_password) return;
     const t = setTimeout(() => void loadData(), 180);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    configured,
+    currentUser,
+    query,
+    categoryFilter,
+    ownerFilter,
+  ]);
+
+  // Rafraîchissement arrière-plan : régulier, sans gêner édition / enregistrement
+  useEffect(() => {
+    if (!configured || !currentUser || currentUser.must_change_password) return;
+
+    const REFRESH_MS = 20_000;
+
+    const tick = () => {
+      if (document.visibilityState === "hidden") return;
+      void loadData({ silent: true });
+    };
+
+    const intervalId = window.setInterval(tick, REFRESH_MS);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     configured,

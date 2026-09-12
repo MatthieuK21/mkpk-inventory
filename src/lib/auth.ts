@@ -37,7 +37,7 @@ export async function loadAllowedLocations(
     .filter(Boolean);
 }
 
-function toAuthUser(row: {
+export function toAuthUser(row: {
   id: string;
   name: string;
   login: string | null;
@@ -46,6 +46,7 @@ function toAuthUser(row: {
   must_change_password: boolean | null;
   created_at: string;
   password_hash?: string | null;
+  has_webauthn?: boolean;
 }): AuthUser | null {
   if (!row.login) return null;
   return {
@@ -57,7 +58,18 @@ function toAuthUser(row: {
     must_change_password: Boolean(row.must_change_password),
     created_at: row.created_at,
     has_password: Boolean(row.password_hash),
+    has_webauthn: Boolean(row.has_webauthn),
   };
+}
+
+export async function userHasWebauthn(userId: string): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const { count, error } = await supabase
+    .from("webauthn_credentials")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return (count ?? 0) > 0;
 }
 
 export async function requireAuth(
@@ -81,8 +93,12 @@ export async function requireAuth(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const user = data ? toAuthUser(data) : null;
-    if (!user || !user.active) return unauthorized();
+    const base = data ? toAuthUser(data) : null;
+    if (!base || !base.active) return unauthorized();
+    const user = {
+      ...base,
+      has_webauthn: await userHasWebauthn(base.id),
+    };
 
     const allowedLocations = await loadAllowedLocations(user.id, user.role);
     return {

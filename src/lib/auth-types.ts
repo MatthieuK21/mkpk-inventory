@@ -8,6 +8,7 @@ export type AuthUser = AppUser & {
   active: boolean;
   must_change_password: boolean;
   has_password: boolean;
+  has_webauthn: boolean;
 };
 
 export type AdminUser = AuthUser & {

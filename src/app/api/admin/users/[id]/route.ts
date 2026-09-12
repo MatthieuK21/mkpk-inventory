@@ -26,6 +26,7 @@ function toAuthUser(row: {
     must_change_password: Boolean(row.must_change_password),
     created_at: row.created_at,
     has_password: Boolean(row.password_hash),
+    has_webauthn: false,
   };
 }
 
@@ -116,6 +117,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({
       user: {
         ...user,
+        has_webauthn: (count ?? 0) > 0,
         locations: (grants ?? []).map((g) => String(g.location)).sort((a, b) =>
           a.localeCompare(b, "fr"),
         ),

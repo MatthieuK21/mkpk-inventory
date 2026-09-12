@@ -393,8 +393,9 @@ export default function InventoryApp() {
           const nextDraft = draftFromItem(fresh);
           const key = (fresh.location ?? "").trim().toLowerCase();
           nextDraft.address = key
-            ? (nextLocations.find((loc) => loc.title.toLowerCase() === key)
-                ?.address ?? "")
+            ? (nextLocations.find(
+                (loc: LocationRecord) => loc.title.toLowerCase() === key,
+              )?.address ?? "")
             : "";
           setDraft(nextDraft);
         }

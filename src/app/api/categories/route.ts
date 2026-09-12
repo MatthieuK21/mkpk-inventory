@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkPassword, unauthorized } from "@/lib/auth";
+import { isAuthContext, requireAuth, canAccessLocation } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
-  if (!checkPassword(request)) return unauthorized();
+  const auth = await requireAuth(request);
+  if (!isAuthContext(auth)) return auth;
 
   try {
     const supabase = getSupabaseAdmin();
@@ -24,7 +25,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!checkPassword(request)) return unauthorized();
+  const auth = await requireAuth(request);
+  if (!isAuthContext(auth)) return auth;
 
   try {
     const body = await request.json();

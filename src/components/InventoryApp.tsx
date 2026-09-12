@@ -7,7 +7,6 @@ import { EffectCoverflow, Keyboard, Mousewheel } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/effect-coverflow";
 import type {
-  AppUser,
   Category,
   InventoryItem,
   ItemComment,
@@ -20,14 +19,28 @@ import {
   formatHistoryValue,
   formatPrice,
 } from "@/lib/history";
+import type { AuthUser } from "@/lib/auth-types";
+import type { LocationRecord } from "@/lib/locations";
+import {
+  clearSession,
+  readSessionToken,
+  readStoredAuthUser,
+  sessionHeaders,
+  writeSession,
+} from "@/lib/client-auth";
+import {
+  browserSupportsWebAuthn,
+  startRegistration,
+} from "@simplewebauthn/browser";
+import LoginGate from "@/components/LoginGate";
+import AdminUsersPanel from "@/components/AdminUsersPanel";
 
-const PASSWORD_KEY = "mkpk-inventory-password";
-const USER_KEY = "mkpk-inventory-user";
 const NO_LOCATION_KEY = "__none__";
 
 type LocationBubble = {
   key: string;
   label: string;
+  address: string | null;
   count: number;
   coverUrl: string | null;
 };
@@ -36,57 +49,12 @@ type Draft = {
   name: string;
   description: string;
   location: string;
+  address: string;
   quantity: number;
   category_id: string;
   estimated_price: string;
   owner: ItemOwner | "";
 };
-
-function readStoredPassword(): string {
-  try {
-    if (typeof window === "undefined") return "";
-    return (sessionStorage.getItem(PASSWORD_KEY) ?? "").trim();
-  } catch {
-    return "";
-  }
-}
-
-function writeStoredPassword(value: string) {
-  try {
-    const trimmed = value.trim();
-    if (trimmed) sessionStorage.setItem(PASSWORD_KEY, trimmed);
-    else sessionStorage.removeItem(PASSWORD_KEY);
-  } catch {
-    // sessionStorage can throw in private browsing
-  }
-}
-
-function clearStoredPassword() {
-  try {
-    sessionStorage.removeItem(PASSWORD_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-/** Prefer live state, fall back to sessionStorage (avoids race on hydrate). */
-function resolvePassword(statePassword: string): string {
-  return statePassword.trim() || readStoredPassword();
-}
-
-function authHeaders(password: string): HeadersInit {
-  const pwd = resolvePassword(password);
-  return pwd ? { "x-inventory-password": pwd } : {};
-}
-
-function loadStoredUser(): AppUser | null {
-  try {
-    const raw = sessionStorage.getItem(USER_KEY);
-    return raw ? (JSON.parse(raw) as AppUser) : null;
-  } catch {
-    return null;
-  }
-}
 
 function formatDate(iso: string) {
   try {
@@ -104,6 +72,7 @@ function draftFromItem(item: InventoryItem): Draft {
     name: item.name,
     description: item.description ?? "",
     location: item.location ?? "",
+    address: "",
     quantity: item.quantity,
     category_id: item.category_id ?? "",
     estimated_price:
@@ -120,14 +89,15 @@ function isDraftDirty(item: InventoryItem, draft: Draft) {
 }
 
 export default function InventoryApp() {
-  const [passwordRequired, setPasswordRequired] = useState(false);
   const [configured, setConfigured] = useState(true);
-  const [password, setPassword] = useState(() => readStoredPassword());
-  const [unlocked, setUnlocked] = useState(false);
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
-  const [users, setUsers] = useState<AppUser[]>([]);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [pwdForm, setPwdForm] = useState({ current: "", next: "", confirm: "" });
   const [categories, setCategories] = useState<Category[]>([]);
-  const [locations, setLocations] = useState<string[]>([]);
+  const [locations, setLocations] = useState<LocationRecord[]>([]);
+  const [locationAddress, setLocationAddress] = useState("");
+  const [orphanPrompt, setOrphanPrompt] = useState<LocationRecord | null>(null);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -142,7 +112,6 @@ export default function InventoryApp() {
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [newUserName, setNewUserName] = useState("");
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -169,7 +138,52 @@ export default function InventoryApp() {
     ? (items.find((item) => item.id === detailId) ?? null)
     : null;
 
+
+  function addressForTitle(title: string): string {
+    const key = title.trim().toLowerCase();
+    if (!key) return "";
+    return (
+      locations.find((loc) => loc.title.toLowerCase() === key)?.address ?? ""
+    );
+  }
+
+  async function maybePromptOrphan(orphaned: LocationRecord | null | undefined) {
+    if (!orphaned?.title) return;
+    setOrphanPrompt(orphaned);
+  }
+
+  async function confirmDeleteOrphan(keep: boolean) {
+    const target = orphanPrompt;
+    setOrphanPrompt(null);
+    if (!target || keep) {
+      await loadData();
+      return;
+    }
+    try {
+      const res = await fetch("/api/locations", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...sessionHeaders(),
+        },
+        body: JSON.stringify({ id: target.id, title: target.title }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Suppression du lieu impossible");
+      if (selectedLocation && selectedLocation.toLowerCase() === target.title.toLowerCase()) {
+        setSelectedLocation(null);
+      }
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur suppression lieu");
+      await loadData();
+    }
+  }
+
   const locationBubbles = useMemo(() => {
+    const addressMap = new Map(
+      locations.map((loc) => [loc.title.toLowerCase(), loc.address]),
+    );
     const map = new Map<string, LocationBubble>();
     for (const item of items) {
       const key = item.location?.trim() || NO_LOCATION_KEY;
@@ -179,6 +193,10 @@ export default function InventoryApp() {
         map.set(key, {
           key,
           label,
+          address:
+            key === NO_LOCATION_KEY
+              ? null
+              : addressMap.get(key.toLowerCase()) ?? null,
           count: 1,
           coverUrl: item.image_url ?? null,
         });
@@ -189,10 +207,16 @@ export default function InventoryApp() {
         }
       }
     }
+    // Inclure les lieux connus sans objet (catalogue)
+    for (const loc of locations) {
+      const key = loc.title.trim();
+      if (!key || map.has(key)) continue;
+      // Ne pas afficher les lieux vides sur la carte — seulement dans la liste de choix
+    }
     return [...map.values()].sort((a, b) =>
       a.label.localeCompare(b.label, "fr", { sensitivity: "base" }),
     );
-  }, [items]);
+  }, [items, locations]);
 
   const visibleItems = useMemo(() => {
     if (selectedLocation === null) return [];
@@ -210,67 +234,86 @@ export default function InventoryApp() {
       : selectedLocation;
 
   useEffect(() => {
-    const saved = readStoredPassword();
-    if (saved) setPassword(saved);
-    setCurrentUser(loadStoredUser());
+    const stored = readStoredAuthUser();
+    const token = readSessionToken();
+    if (stored && token) setCurrentUser(stored);
 
     fetch("/api/config")
       .then((r) => r.json())
       .then((data) => {
-        setPasswordRequired(Boolean(data.passwordRequired));
         setConfigured(Boolean(data.configured));
-        if (!data.passwordRequired || saved) setUnlocked(true);
       })
-      .catch(() => setConfigured(false));
+      .catch(() => setConfigured(false))
+      .finally(() => setSessionReady(true));
+
+    if (token) {
+      fetch("/api/auth/me", { headers: sessionHeaders(token) })
+        .then(async (r) => {
+          const json = await r.json();
+          if (!r.ok) {
+            clearSession();
+            setCurrentUser(null);
+            return;
+          }
+          setCurrentUser(json.user);
+          writeSession(token, json.user);
+        })
+        .catch(() => {
+          clearSession();
+          setCurrentUser(null);
+        });
+    }
   }, []);
 
-  async function loadData(pwd = password) {
+  async function loadData() {
     setLoading(true);
     setError(null);
     try {
-      const effectivePwd = resolvePassword(pwd);
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
       if (categoryFilter) params.set("category", categoryFilter);
       if (ownerFilter) params.set("owner", ownerFilter);
 
-      const [catRes, itemRes, userRes, locRes] = await Promise.all([
-        fetch("/api/categories", { headers: authHeaders(effectivePwd) }),
-        fetch(`/api/items?${params}`, { headers: authHeaders(effectivePwd) }),
-        fetch("/api/users", { headers: authHeaders(effectivePwd) }),
-        fetch("/api/locations", { headers: authHeaders(effectivePwd) }),
+      const headers = sessionHeaders();
+      const [catRes, itemRes, locRes] = await Promise.all([
+        fetch("/api/categories", { headers }),
+        fetch(`/api/items?${params}`, { headers }),
+        fetch("/api/locations", { headers }),
       ]);
 
-      if ([catRes, itemRes, userRes, locRes].some((r) => r.status === 401)) {
-        // Don't wipe a stored password if we accidentally sent an empty one
-        // (React state not hydrated yet) — that was locking mobile users out.
-        if (effectivePwd) {
-          setUnlocked(false);
-          clearStoredPassword();
-          setPassword("");
-          throw new Error("Mot de passe incorrect");
-        }
-        throw new Error("Session à reconstruire — réessayez");
+      if ([catRes, itemRes, locRes].some((r) => r.status === 401)) {
+        clearSession();
+        setCurrentUser(null);
+        throw new Error("Session expirée — reconnectez-vous");
       }
 
-      const [catJson, itemJson, userJson, locJson] = await Promise.all([
+      const [catJson, itemJson, locJson] = await Promise.all([
         catRes.json(),
         itemRes.json(),
-        userRes.json(),
         locRes.json(),
       ]);
 
       if (!catRes.ok) throw new Error(catJson.error || "Erreur catégories");
       if (!itemRes.ok) throw new Error(itemJson.error || "Erreur inventaire");
-      if (!userRes.ok) throw new Error(userJson.error || "Erreur utilisateurs");
       if (!locRes.ok) throw new Error(locJson.error || "Erreur lieux");
 
       const nextItems: InventoryItem[] = itemJson.items ?? [];
       setCategories(catJson.categories ?? []);
-      setLocations(locJson.locations ?? []);
+      setLocations(
+        Array.isArray(locJson.locations)
+          ? locJson.locations.map((loc: LocationRecord | string) =>
+              typeof loc === "string"
+                ? {
+                    id: loc,
+                    title: loc,
+                    address: null,
+                    created_at: "",
+                  }
+                : loc,
+            )
+          : [],
+      );
       setItems(nextItems);
-      setUsers(userJson.users ?? []);
-      setUnlocked(true);
       setActiveIndex((i) =>
         nextItems.length === 0 ? 0 : Math.min(i, nextItems.length - 1),
       );
@@ -282,37 +325,11 @@ export default function InventoryApp() {
   }
 
   useEffect(() => {
-    if (!unlocked || !configured) return;
-    if (!currentUser) {
-      void (async () => {
-        try {
-          const res = await fetch("/api/users", {
-            headers: authHeaders(password),
-          });
-          const json = await res.json();
-          if (res.status === 401) {
-            const pwd = resolvePassword(password);
-            if (pwd) {
-              setUnlocked(false);
-              clearStoredPassword();
-              setPassword("");
-              throw new Error("Mot de passe incorrect");
-            }
-            throw new Error("Session à reconstruire — réessayez");
-          }
-          if (!res.ok) throw new Error(json.error || "Erreur utilisateurs");
-          setUsers(json.users ?? []);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Erreur utilisateurs");
-        }
-      })();
-      return;
-    }
+    if (!configured || !currentUser || currentUser.must_change_password) return;
     const t = setTimeout(() => void loadData(), 180);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    unlocked,
     configured,
     currentUser,
     query,
@@ -335,16 +352,20 @@ export default function InventoryApp() {
       setDraft(null);
       return;
     }
-    setDraft(draftFromItem(detailItem));
+    const next = draftFromItem(detailItem);
+      next.address = detailItem.location
+        ? addressForTitle(detailItem.location)
+        : "";
+      setDraft(next);
     setCommentText("");
     void (async () => {
       try {
         const [cRes, hRes] = await Promise.all([
           fetch(`/api/items/${detailItem.id}/comments`, {
-            headers: authHeaders(password),
+            headers: sessionHeaders(),
           }),
           fetch(`/api/items/${detailItem.id}/history`, {
-            headers: authHeaders(password),
+            headers: sessionHeaders(),
           }),
         ]);
         const cJson = await cRes.json();
@@ -379,20 +400,94 @@ export default function InventoryApp() {
     owner,
   ]);
 
-  function connectAs(user: AppUser) {
-    sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+  function onAuthenticated(user: AuthUser, token: string) {
+    writeSession(token, user);
     setCurrentUser(user);
+    setError(null);
   }
 
   function disconnect() {
-    sessionStorage.removeItem(USER_KEY);
+    clearSession();
     setCurrentUser(null);
+    setShowAdmin(false);
+    setItems([]);
+    setSelectedLocation(null);
+  }
+
+  async function registerMyBiometrics() {
+    if (!browserSupportsWebAuthn()) {
+      setError("Biométrie non supportée sur cet appareil");
+      return;
+    }
+    setError(null);
+    try {
+      const optRes = await fetch("/api/auth/webauthn/register/options", {
+        method: "POST",
+        headers: sessionHeaders(),
+      });
+      const optJson = await optRes.json();
+      if (!optRes.ok) throw new Error(optJson.error || "Options biométrie");
+      const attestation = await startRegistration({
+        optionsJSON: optJson.options,
+      });
+      const verifyRes = await fetch("/api/auth/webauthn/register/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...sessionHeaders(),
+        },
+        body: JSON.stringify({
+          challengeId: optJson.challengeId,
+          response: attestation,
+        }),
+      });
+      const verifyJson = await verifyRes.json();
+      if (!verifyRes.ok) {
+        throw new Error(verifyJson.error || "Échec enregistrement biométrie");
+      }
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 1500);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Erreur empreinte / Face ID",
+      );
+    }
+  }
+
+  async function changePassword(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (pwdForm.next !== pwdForm.confirm) {
+      setError("Les mots de passe ne correspondent pas");
+      return;
+    }
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...sessionHeaders(),
+        },
+        body: JSON.stringify({
+          currentPassword: pwdForm.current,
+          nextPassword: pwdForm.next,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Changement impossible");
+      writeSession(json.token, json.user);
+      setCurrentUser(json.user);
+      setPwdForm({ current: "", next: "", confirm: "" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur mot de passe");
+    }
   }
 
   function resetAdd() {
     setName("");
     setDescription("");
     setLocation("");
+    setLocationAddress("");
     setQuantity(1);
     setEstimatedPrice("");
     setOwner("");
@@ -438,6 +533,9 @@ export default function InventoryApp() {
       form.set("name", name.trim());
       form.set("description", description.trim());
       form.set("location", location.trim());
+      if (locationAddress.trim() || location.trim()) {
+        form.set("address", locationAddress.trim());
+      }
       form.set("quantity", String(quantity));
       form.set("user_id", currentUser.id);
       if (estimatedPrice.trim()) form.set("estimated_price", estimatedPrice.trim());
@@ -446,7 +544,7 @@ export default function InventoryApp() {
 
       const res = await fetch("/api/items", {
         method: "POST",
-        headers: authHeaders(password),
+        headers: sessionHeaders(),
         body: form,
       });
       const json = await res.json();
@@ -474,12 +572,13 @@ export default function InventoryApp() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders(password),
+          ...sessionHeaders(),
         },
         body: JSON.stringify({
           name: current.name.trim(),
           description: current.description,
           location: current.location,
+          address: current.address,
           quantity: current.quantity,
           category_id: current.category_id || null,
           estimated_price: current.estimated_price,
@@ -493,10 +592,16 @@ export default function InventoryApp() {
       setItems((prev) =>
         prev.map((item) => (item.id === itemId ? json.item : item)),
       );
-      setDraft(draftFromItem(json.item));
+      const nextDraft = draftFromItem(json.item);
+      nextDraft.address =
+        json.item.location
+          ? addressForTitle(json.item.location) || current.address
+          : "";
+      setDraft(nextDraft);
       setSaveStatus("saved");
+      await maybePromptOrphan(json.orphanedLocation);
       const hRes = await fetch(`/api/items/${itemId}/history`, {
-        headers: authHeaders(password),
+        headers: sessionHeaders(),
       });
       const hJson = await hRes.json();
       if (hRes.ok) setHistory(hJson.history ?? []);
@@ -531,7 +636,7 @@ export default function InventoryApp() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders(password),
+          ...sessionHeaders(),
         },
         body: JSON.stringify({
           user_id: currentUser.id,
@@ -555,35 +660,18 @@ export default function InventoryApp() {
     try {
       const res = await fetch(`/api/items/${id}`, {
         method: "DELETE",
-        headers: authHeaders(password),
+        headers: sessionHeaders(),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Suppression impossible");
       setDetailId(null);
-      await loadData();
+      if (json.orphanedLocation) {
+        await maybePromptOrphan(json.orphanedLocation);
+      } else {
+        await loadData();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur suppression");
-    }
-  }
-
-  async function createUser(e: FormEvent) {
-    e.preventDefault();
-    if (!newUserName.trim()) return;
-    try {
-      const res = await fetch("/api/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(password),
-        },
-        body: JSON.stringify({ name: newUserName.trim() }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Impossible de créer le profil");
-      setNewUserName("");
-      connectAs(json.user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur utilisateur");
     }
   }
 
@@ -599,71 +687,62 @@ export default function InventoryApp() {
     );
   }
 
-  if (passwordRequired && !unlocked) {
+  if (!sessionReady) {
     return (
       <main className="gate">
-        <form
-          className="gate-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const trimmed = password.trim();
-            if (!trimmed) {
-              setError("Mot de passe requis");
-              return;
-            }
-            writeStoredPassword(trimmed);
-            setPassword(trimmed);
-            setError(null);
-            setUnlocked(true);
-          }}
-        >
+        <div className="gate-card">
           <p className="brand">MKPK</p>
-          <h1>Inventaire</h1>
-          {error && <p className="error">{error}</p>}
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Mot de passe"
-            autoComplete="current-password"
-            autoFocus
-            required
-          />
-          <button type="submit">Entrer</button>
-        </form>
+          <p className="muted">Chargement…</p>
+        </div>
       </main>
     );
   }
 
   if (!currentUser) {
+    return <LoginGate onAuthenticated={onAuthenticated} />;
+  }
+
+  if (currentUser.must_change_password) {
     return (
       <main className="gate">
-        <div className="gate-card">
+        <form className="gate-card" onSubmit={changePassword}>
           <p className="brand">MKPK</p>
-          <h1>Qui êtes-vous ?</h1>
+          <h1>Nouveau mot de passe</h1>
+          <p className="muted">
+            Bonjour {currentUser.name}, choisissez un mot de passe personnel.
+          </p>
           {error && <p className="error">{error}</p>}
-          <div className="user-list">
-            {users.map((user) => (
-              <button
-                key={user.id}
-                type="button"
-                className="user-chip"
-                onClick={() => connectAs(user)}
-              >
-                {user.name}
-              </button>
-            ))}
-          </div>
-          <form className="new-user" onSubmit={createUser}>
-            <input
-              value={newUserName}
-              onChange={(e) => setNewUserName(e.target.value)}
-              placeholder="Nouveau profil"
-              required
-            />
-            <button type="submit">Entrer</button>
-          </form>
-        </div>
+          <input
+            type="password"
+            value={pwdForm.current}
+            onChange={(e) =>
+              setPwdForm((p) => ({ ...p, current: e.target.value }))
+            }
+            placeholder="Mot de passe actuel"
+            autoComplete="current-password"
+          />
+          <input
+            type="password"
+            value={pwdForm.next}
+            onChange={(e) =>
+              setPwdForm((p) => ({ ...p, next: e.target.value }))
+            }
+            placeholder="Nouveau mot de passe"
+            autoComplete="new-password"
+            required
+          />
+          <input
+            type="password"
+            value={pwdForm.confirm}
+            onChange={(e) =>
+              setPwdForm((p) => ({ ...p, confirm: e.target.value }))
+            }
+            placeholder="Confirmer"
+            autoComplete="new-password"
+            required
+          />
+          <button type="submit">Enregistrer</button>
+        </form>
       </main>
     );
   }
@@ -729,16 +808,41 @@ export default function InventoryApp() {
                 ? visibleItems.length
                 : locationBubbles.length}
         </span>
+        {currentUser.role === "admin" ? (
+          <button
+            type="button"
+            className="menubar-user"
+            onClick={() => setShowAdmin(true)}
+          >
+            Admin
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="menubar-user"
+          onClick={() => void registerMyBiometrics()}
+          title="Enregistrer empreinte ou Face ID"
+        >
+          Bio
+        </button>
         <button type="button" className="menubar-user" onClick={disconnect}>
           {currentUser.name}
         </button>
       </header>
 
+      <AdminUsersPanel
+        open={showAdmin}
+        onClose={() => setShowAdmin(false)}
+        knownLocations={locations.map((loc) => loc.title)}
+      />
+
       {error && <p className="error banner menubar-error">{error}</p>}
 
       <datalist id="known-locations">
         {locations.map((loc) => (
-          <option key={loc} value={loc} />
+          <option key={loc.id} value={loc.title}>
+            {loc.address ? loc.address : loc.title}
+          </option>
         ))}
       </datalist>
 
@@ -773,6 +877,9 @@ export default function InventoryApp() {
                 />
                 <span className="location-bubble-body">
                   <span className="location-bubble-name">{bubble.label}</span>
+                  {bubble.address ? (
+                    <span className="location-bubble-address">{bubble.address}</span>
+                  ) : null}
                   <span className="location-bubble-count">
                     {bubble.count} objet{bubble.count > 1 ? "s" : ""}
                   </span>
@@ -986,16 +1093,31 @@ export default function InventoryApp() {
                   </select>
                 </label>
                 <label>
-                  Lieu
+                  Titre du lieu
                   <input
                     list="known-locations"
                     value={location}
                     onChange={(e) => {
                       addSavingRef.current = false;
-                      setLocation(e.target.value);
+                      const title = e.target.value;
+                      setLocation(title);
+                      const known = addressForTitle(title);
+                      if (known) setLocationAddress(known);
                     }}
-                    placeholder="Salon, Cave…"
+                    placeholder="Maison, Cave…"
                     autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Adresse du lieu
+                  <input
+                    value={locationAddress}
+                    onChange={(e) => {
+                      addSavingRef.current = false;
+                      setLocationAddress(e.target.value);
+                    }}
+                    placeholder="12 rue…, bâtiment B…"
+                    autoComplete="street-address"
                   />
                 </label>
                 <label>
@@ -1112,14 +1234,31 @@ export default function InventoryApp() {
                   </select>
                 </label>
                 <label>
-                  Lieu
+                  Titre du lieu
                   <input
                     list="known-locations"
                     value={draft.location}
-                    onChange={(e) =>
-                      setDraft({ ...draft, location: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const title = e.target.value;
+                      const known = addressForTitle(title);
+                      setDraft({
+                        ...draft,
+                        location: title,
+                        address: known || draft.address,
+                      });
+                    }}
                     autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Adresse du lieu
+                  <input
+                    value={draft.address}
+                    onChange={(e) =>
+                      setDraft({ ...draft, address: e.target.value })
+                    }
+                    placeholder="12 rue…, bâtiment B…"
+                    autoComplete="street-address"
                   />
                 </label>
                 <label>
@@ -1266,6 +1405,46 @@ export default function InventoryApp() {
       )}
 
       <footer className="site-footer shell-footer">© MK 2026</footer>
-    </main>
+    
+      {orphanPrompt && (
+        <div className="modal" onClick={() => void confirmDeleteOrphan(true)}>
+          <article
+            className="sheet orphan-sheet"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Lieu sans objet</h2>
+            </div>
+            <p>
+              Le lieu <strong>{orphanPrompt.title}</strong>
+              {orphanPrompt.address ? (
+                <>
+                  {" "}
+                  ({orphanPrompt.address})
+                </>
+              ) : null}{" "}
+              n&apos;a plus aucun objet. Voulez-vous le supprimer de la liste
+              ?
+            </p>
+            <div className="orphan-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void confirmDeleteOrphan(true)}
+              >
+                Conserver
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void confirmDeleteOrphan(false)}
+              >
+                Supprimer le lieu
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
+</main>
   );
 }

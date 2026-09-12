@@ -11,6 +11,8 @@ export type AppUser = {
   created_at: string;
 };
 
+export type { AuthUser, UserRole, AdminUser } from "@/lib/auth-types";
+
 export type ItemComment = {
   id: string;
   item_id: string;

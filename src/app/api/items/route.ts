@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkPassword, unauthorized } from "@/lib/auth";
+import { isAuthContext, requireAuth, canAccessLocation } from "@/lib/auth";
 import { parsePrice, recordItemHistory } from "@/lib/history";
 import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
 import { isItemOwner } from "@/lib/types";
+import { upsertLocation } from "@/lib/locations";
 
 export async function GET(request: NextRequest) {
-  if (!checkPassword(request)) return unauthorized();
+  const auth = await requireAuth(request);
+  if (!isAuthContext(auth)) return auth;
 
   try {
     const supabase = getSupabaseAdmin();
@@ -28,7 +30,15 @@ export async function GET(request: NextRequest) {
     }
 
     if (location) {
+      if (!canAccessLocation(auth, location)) {
+        return NextResponse.json({ items: [] });
+      }
       query = query.eq("location", location);
+    } else if (auth.allowedLocations !== null) {
+      if (auth.allowedLocations.length === 0) {
+        return NextResponse.json({ items: [] });
+      }
+      query = query.in("location", auth.allowedLocations);
     }
 
     if (q) {
@@ -56,7 +66,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!checkPassword(request)) return unauthorized();
+  const auth = await requireAuth(request);
+  if (!isAuthContext(auth)) return auth;
 
   try {
     const form = await request.formData();
@@ -64,15 +75,27 @@ export async function POST(request: NextRequest) {
     const name = String(form.get("name") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
     const location = String(form.get("location") ?? "").trim();
+    const addressRaw = form.get("address");
+    const address =
+      addressRaw === null || addressRaw === undefined
+        ? undefined
+        : String(addressRaw);
     const quantity = Number(form.get("quantity") ?? 1);
     const categoryId = String(form.get("category_id") ?? "").trim() || null;
     const estimatedPrice = parsePrice(form.get("estimated_price"));
     const ownerRaw = String(form.get("owner") ?? "").trim();
     const owner = isItemOwner(ownerRaw) ? ownerRaw : null;
-    const userId = String(form.get("user_id") ?? "").trim() || null;
+    const userId = auth.user.id;
 
     if (!name) {
       return NextResponse.json({ error: "Le nom est obligatoire" }, { status: 400 });
+    }
+
+    if (!canAccessLocation(auth, location || null)) {
+      return NextResponse.json(
+        { error: "Vous n'avez pas accès à ce lieu" },
+        { status: 403 },
+      );
     }
 
     if (!(file instanceof File) || file.size === 0) {
@@ -101,6 +124,10 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    }
+
+    if (location) {
+      await upsertLocation({ title: location, address });
     }
 
     const { data, error } = await supabase

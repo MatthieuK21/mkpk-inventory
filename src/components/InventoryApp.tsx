@@ -958,8 +958,16 @@ export default function InventoryApp() {
             Bio
           </button>
         ) : null}
-        <button type="button" className="menubar-user" onClick={disconnect}>
+        <span className="menubar-user menubar-user-label" title={currentUser.login}>
           {currentUser.name}
+        </span>
+        <button
+          type="button"
+          className="menubar-user"
+          onClick={disconnect}
+          title="Se déconnecter"
+        >
+          Déconnexion
         </button>
       </header>
 

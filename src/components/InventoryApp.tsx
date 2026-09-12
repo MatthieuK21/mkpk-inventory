@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
 import type { Swiper as SwiperType } from "swiper";
 import { EffectCoverflow, Keyboard, Mousewheel } from "swiper/modules";
@@ -23,6 +23,14 @@ import {
 
 const PASSWORD_KEY = "mkpk-inventory-password";
 const USER_KEY = "mkpk-inventory-user";
+const NO_LOCATION_KEY = "__none__";
+
+type LocationBubble = {
+  key: string;
+  label: string;
+  count: number;
+  coverUrl: string | null;
+};
 
 type Draft = {
   name: string;
@@ -124,7 +132,7 @@ export default function InventoryApp() {
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
-  const [locationFilter, setLocationFilter] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
@@ -161,6 +169,46 @@ export default function InventoryApp() {
     ? (items.find((item) => item.id === detailId) ?? null)
     : null;
 
+  const locationBubbles = useMemo(() => {
+    const map = new Map<string, LocationBubble>();
+    for (const item of items) {
+      const key = item.location?.trim() || NO_LOCATION_KEY;
+      const label = key === NO_LOCATION_KEY ? "Sans lieu" : key;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          key,
+          label,
+          count: 1,
+          coverUrl: item.image_url ?? null,
+        });
+      } else {
+        existing.count += 1;
+        if (!existing.coverUrl && item.image_url) {
+          existing.coverUrl = item.image_url;
+        }
+      }
+    }
+    return [...map.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, "fr", { sensitivity: "base" }),
+    );
+  }, [items]);
+
+  const visibleItems = useMemo(() => {
+    if (selectedLocation === null) return [];
+    if (selectedLocation === NO_LOCATION_KEY) {
+      return items.filter((item) => !item.location?.trim());
+    }
+    return items.filter(
+      (item) => (item.location ?? "").trim() === selectedLocation,
+    );
+  }, [items, selectedLocation]);
+
+  const selectedLocationLabel =
+    selectedLocation === NO_LOCATION_KEY
+      ? "Sans lieu"
+      : selectedLocation;
+
   useEffect(() => {
     const saved = readStoredPassword();
     if (saved) setPassword(saved);
@@ -185,7 +233,6 @@ export default function InventoryApp() {
       if (query.trim()) params.set("q", query.trim());
       if (categoryFilter) params.set("category", categoryFilter);
       if (ownerFilter) params.set("owner", ownerFilter);
-      if (locationFilter) params.set("location", locationFilter);
 
       const [catRes, itemRes, userRes, locRes] = await Promise.all([
         fetch("/api/categories", { headers: authHeaders(effectivePwd) }),
@@ -271,7 +318,6 @@ export default function InventoryApp() {
     query,
     categoryFilter,
     ownerFilter,
-    locationFilter,
   ]);
 
   useEffect(() => {
@@ -625,7 +671,23 @@ export default function InventoryApp() {
   return (
     <main className="app-shell">
       <header className="menubar">
-        <span className="brand menubar-brand">MKPK</span>
+        {selectedLocation !== null ? (
+          <button
+            type="button"
+            className="menubar-back"
+            onClick={() => {
+              setSelectedLocation(null);
+              setDetailId(null);
+              setActiveIndex(0);
+            }}
+            aria-label="Retour aux lieux"
+          >
+            ←
+          </button>
+        ) : null}
+        <span className="brand menubar-brand">
+          {selectedLocation !== null ? selectedLocationLabel : "MKPK"}
+        </span>
         <input
           className="menubar-search"
           value={query}
@@ -658,25 +720,14 @@ export default function InventoryApp() {
             </option>
           ))}
         </select>
-        <select
-          className="menubar-select"
-          value={locationFilter}
-          onChange={(e) => setLocationFilter(e.target.value)}
-          aria-label="Lieu"
-        >
-          <option value="">Lieux</option>
-          {locations.map((loc) => (
-            <option key={loc} value={loc}>
-              {loc}
-            </option>
-          ))}
-        </select>
         <span className="menubar-meta" aria-live="polite">
           {saveStatus === "saving"
             ? "…"
             : saveStatus === "saved"
               ? "OK"
-              : items.length}
+              : selectedLocation !== null
+                ? visibleItems.length
+                : locationBubbles.length}
         </span>
         <button type="button" className="menubar-user" onClick={disconnect}>
           {currentUser.name}
@@ -697,15 +748,60 @@ export default function InventoryApp() {
         <div className="empty-state stage-fill">
           <p className="muted">Aucun objet. Prenez une photo pour commencer.</p>
         </div>
+      ) : selectedLocation === null ? (
+        <section className="location-map stage-fill" aria-label="Lieux">
+          <div className="location-map-grid">
+            {locationBubbles.map((bubble) => (
+              <button
+                key={bubble.key}
+                type="button"
+                className="location-bubble"
+                onClick={() => {
+                  setSelectedLocation(bubble.key);
+                  setActiveIndex(0);
+                  setDetailId(null);
+                }}
+              >
+                <span
+                  className="location-bubble-cover"
+                  style={
+                    bubble.coverUrl
+                      ? { backgroundImage: `url(${bubble.coverUrl})` }
+                      : undefined
+                  }
+                  aria-hidden
+                />
+                <span className="location-bubble-body">
+                  <span className="location-bubble-name">{bubble.label}</span>
+                  <span className="location-bubble-count">
+                    {bubble.count} objet{bubble.count > 1 ? "s" : ""}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : visibleItems.length === 0 ? (
+        <div className="empty-state stage-fill">
+          <p className="muted">Aucun objet dans ce lieu.</p>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setSelectedLocation(null)}
+          >
+            Retour aux lieux
+          </button>
+        </div>
       ) : (
         <section className="coverflow-stage stage-fill">
           <Swiper
+            key={selectedLocation}
             modules={[EffectCoverflow, Keyboard, Mousewheel]}
             effect="coverflow"
             grabCursor
             centeredSlides
             slidesPerView="auto"
-            initialSlide={activeIndex}
+            initialSlide={0}
             speed={620}
             resistanceRatio={0.65}
             threshold={4}
@@ -730,7 +826,7 @@ export default function InventoryApp() {
             onSlideChange={(swiper) => setActiveIndex(swiper.activeIndex)}
             className="coverflow-swiper"
           >
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <SwiperSlide key={item.id} className="coverflow-slide">
                 <button
                   type="button"
@@ -760,7 +856,7 @@ export default function InventoryApp() {
             ))}
           </Swiper>
           <p className="cf-hint">
-            {activeIndex + 1}/{items.length}
+            {Math.min(activeIndex + 1, visibleItems.length)}/{visibleItems.length}
           </p>
         </section>
       )}
@@ -784,7 +880,15 @@ export default function InventoryApp() {
       <button
         type="button"
         className="fab"
-        onClick={() => setShowSourcePicker(true)}
+        onClick={() => {
+          if (
+            selectedLocation &&
+            selectedLocation !== NO_LOCATION_KEY
+          ) {
+            setLocation(selectedLocation);
+          }
+          setShowSourcePicker(true);
+        }}
       >
         + Photo
       </button>

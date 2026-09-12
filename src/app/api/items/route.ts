@@ -3,7 +3,7 @@ import { isAuthContext, requireAuth, canAccessLocation } from "@/lib/auth";
 import { parsePrice, recordItemHistory } from "@/lib/history";
 import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
 import { isItemOwner } from "@/lib/types";
-import { upsertLocation } from "@/lib/locations";
+import { requireCatalogLocation } from "@/lib/locations";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -74,12 +74,7 @@ export async function POST(request: NextRequest) {
     const file = form.get("file");
     const name = String(form.get("name") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
-    const location = String(form.get("location") ?? "").trim();
-    const addressRaw = form.get("address");
-    const address =
-      addressRaw === null || addressRaw === undefined
-        ? undefined
-        : String(addressRaw);
+    const locationRaw = String(form.get("location") ?? "").trim();
     const quantity = Number(form.get("quantity") ?? 1);
     const categoryId = String(form.get("category_id") ?? "").trim() || null;
     const estimatedPrice = parsePrice(form.get("estimated_price"));
@@ -91,11 +86,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Le nom est obligatoire" }, { status: 400 });
     }
 
-    if (!canAccessLocation(auth, location || null)) {
-      return NextResponse.json(
-        { error: "Vous n'avez pas accès à ce lieu" },
-        { status: 403 },
-      );
+    let location: string | null = null;
+    if (locationRaw) {
+      try {
+        const catalog = await requireCatalogLocation(locationRaw);
+        location = catalog!.title;
+      } catch (err) {
+        return NextResponse.json(
+          { error: err instanceof Error ? err.message : "Lieu invalide" },
+          { status: 400 },
+        );
+      }
+      if (!canAccessLocation(auth, location)) {
+        return NextResponse.json(
+          { error: "Vous n'avez pas accès à ce lieu" },
+          { status: 403 },
+        );
+      }
     }
 
     if (!(file instanceof File) || file.size === 0) {
@@ -126,16 +133,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
     }
 
-    if (location) {
-      await upsertLocation({ title: location, address });
-    }
 
     const { data, error } = await supabase
       .from("items")
       .insert({
         name,
         description: description || null,
-        location: location || null,
+        location,
         quantity: Number.isFinite(quantity) && quantity >= 0 ? quantity : 1,
         category_id: categoryId,
         estimated_price: estimatedPrice,

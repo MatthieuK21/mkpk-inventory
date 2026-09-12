@@ -9,7 +9,7 @@ import { getPublicImageUrl, getSupabaseAdmin } from "@/lib/supabase";
 import { isItemOwner } from "@/lib/types";
 import {
   getOrphanedLocation,
-  upsertLocation,
+  requireCatalogLocation,
 } from "@/lib/locations";
 
 type Params = { params: Promise<{ id: string }> };
@@ -34,12 +34,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (typeof body.location === "string") {
       updates.location = body.location.trim() || null;
     }
-    const addressProvided = "address" in body;
-    const addressValue = addressProvided
-      ? body.address === null || body.address === undefined
-        ? null
-        : String(body.address)
-      : undefined;
     if (typeof body.quantity === "number") updates.quantity = body.quantity;
     if ("category_id" in body) {
       updates.category_id = body.category_id || null;
@@ -79,23 +73,23 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     if ("location" in updates) {
       const nextLoc = updates.location as string | null;
-      if (!canAccessLocation(auth, nextLoc)) {
+      if (nextLoc) {
+        try {
+          const catalog = await requireCatalogLocation(nextLoc);
+          updates.location = catalog!.title;
+        } catch (err) {
+          return NextResponse.json(
+            { error: err instanceof Error ? err.message : "Lieu invalide" },
+            { status: 400 },
+          );
+        }
+      }
+      if (!canAccessLocation(auth, updates.location as string | null)) {
         return NextResponse.json(
           { error: "Vous n'avez pas accès à ce lieu" },
           { status: 403 },
         );
       }
-      if (nextLoc) {
-        await upsertLocation({
-          title: nextLoc,
-          address: addressValue,
-        });
-      }
-    } else if (addressProvided && before.location) {
-      await upsertLocation({
-        title: String(before.location),
-        address: addressValue,
-      });
     }
 
     const { data, error } = await supabase

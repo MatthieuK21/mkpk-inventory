@@ -34,6 +34,7 @@ import {
 } from "@simplewebauthn/browser";
 import LoginGate from "@/components/LoginGate";
 import AdminUsersPanel from "@/components/AdminUsersPanel";
+import SettingsLocationsPanel from "@/components/SettingsLocationsPanel";
 
 const NO_LOCATION_KEY = "__none__";
 
@@ -49,7 +50,6 @@ type Draft = {
   name: string;
   description: string;
   location: string;
-  address: string;
   quantity: number;
   category_id: string;
   estimated_price: string;
@@ -72,7 +72,6 @@ function draftFromItem(item: InventoryItem): Draft {
     name: item.name,
     description: item.description ?? "",
     location: item.location ?? "",
-    address: "",
     quantity: item.quantity,
     category_id: item.category_id ?? "",
     estimated_price:
@@ -93,10 +92,10 @@ export default function InventoryApp() {
   const [sessionReady, setSessionReady] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [pwdForm, setPwdForm] = useState({ current: "", next: "", confirm: "" });
   const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<LocationRecord[]>([]);
-  const [locationAddress, setLocationAddress] = useState("");
   const [orphanPrompt, setOrphanPrompt] = useState<LocationRecord | null>(null);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState("");
@@ -352,11 +351,7 @@ export default function InventoryApp() {
       setDraft(null);
       return;
     }
-    const next = draftFromItem(detailItem);
-      next.address = detailItem.location
-        ? addressForTitle(detailItem.location)
-        : "";
-      setDraft(next);
+    setDraft(draftFromItem(detailItem));
     setCommentText("");
     void (async () => {
       try {
@@ -410,6 +405,7 @@ export default function InventoryApp() {
     clearSession();
     setCurrentUser(null);
     setShowAdmin(false);
+    setShowSettings(false);
     setItems([]);
     setSelectedLocation(null);
   }
@@ -487,7 +483,6 @@ export default function InventoryApp() {
     setName("");
     setDescription("");
     setLocation("");
-    setLocationAddress("");
     setQuantity(1);
     setEstimatedPrice("");
     setOwner("");
@@ -533,9 +528,6 @@ export default function InventoryApp() {
       form.set("name", name.trim());
       form.set("description", description.trim());
       form.set("location", location.trim());
-      if (locationAddress.trim() || location.trim()) {
-        form.set("address", locationAddress.trim());
-      }
       form.set("quantity", String(quantity));
       form.set("user_id", currentUser.id);
       if (estimatedPrice.trim()) form.set("estimated_price", estimatedPrice.trim());
@@ -578,7 +570,6 @@ export default function InventoryApp() {
           name: current.name.trim(),
           description: current.description,
           location: current.location,
-          address: current.address,
           quantity: current.quantity,
           category_id: current.category_id || null,
           estimated_price: current.estimated_price,
@@ -592,12 +583,7 @@ export default function InventoryApp() {
       setItems((prev) =>
         prev.map((item) => (item.id === itemId ? json.item : item)),
       );
-      const nextDraft = draftFromItem(json.item);
-      nextDraft.address =
-        json.item.location
-          ? addressForTitle(json.item.location) || current.address
-          : "";
-      setDraft(nextDraft);
+      setDraft(draftFromItem(json.item));
       setSaveStatus("saved");
       await maybePromptOrphan(json.orphanedLocation);
       const hRes = await fetch(`/api/items/${itemId}/history`, {
@@ -808,6 +794,13 @@ export default function InventoryApp() {
                 ? visibleItems.length
                 : locationBubbles.length}
         </span>
+        <button
+          type="button"
+          className="menubar-user"
+          onClick={() => setShowSettings(true)}
+        >
+          Paramètres
+        </button>
         {currentUser.role === "admin" ? (
           <button
             type="button"
@@ -830,6 +823,12 @@ export default function InventoryApp() {
         </button>
       </header>
 
+      <SettingsLocationsPanel
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        onChanged={() => void loadData()}
+      />
+
       <AdminUsersPanel
         open={showAdmin}
         onClose={() => setShowAdmin(false)}
@@ -838,13 +837,6 @@ export default function InventoryApp() {
 
       {error && <p className="error banner menubar-error">{error}</p>}
 
-      <datalist id="known-locations">
-        {locations.map((loc) => (
-          <option key={loc.id} value={loc.title}>
-            {loc.address ? loc.address : loc.title}
-          </option>
-        ))}
-      </datalist>
 
       {loading ? (
         <p className="muted stage-msg stage-fill">Chargement…</p>
@@ -1093,32 +1085,27 @@ export default function InventoryApp() {
                   </select>
                 </label>
                 <label>
-                  Titre du lieu
-                  <input
-                    list="known-locations"
+                  Lieu
+                  <select
                     value={location}
                     onChange={(e) => {
                       addSavingRef.current = false;
-                      const title = e.target.value;
-                      setLocation(title);
-                      const known = addressForTitle(title);
-                      if (known) setLocationAddress(known);
+                      setLocation(e.target.value);
                     }}
-                    placeholder="Maison, Cave…"
-                    autoComplete="off"
-                  />
-                </label>
-                <label>
-                  Adresse du lieu
-                  <input
-                    value={locationAddress}
-                    onChange={(e) => {
-                      addSavingRef.current = false;
-                      setLocationAddress(e.target.value);
-                    }}
-                    placeholder="12 rue…, bâtiment B…"
-                    autoComplete="street-address"
-                  />
+                  >
+                    <option value="">Sans lieu</option>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.title}>
+                        {loc.title}
+                        {loc.address ? ` — ${loc.address}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {locations.length === 0 ? (
+                    <span className="field-hint">
+                      Aucun lieu : créez-en un dans Paramètres.
+                    </span>
+                  ) : null}
                 </label>
                 <label>
                   Quantité
@@ -1234,32 +1221,26 @@ export default function InventoryApp() {
                   </select>
                 </label>
                 <label>
-                  Titre du lieu
-                  <input
-                    list="known-locations"
+                  Lieu
+                  <select
                     value={draft.location}
-                    onChange={(e) => {
-                      const title = e.target.value;
-                      const known = addressForTitle(title);
-                      setDraft({
-                        ...draft,
-                        location: title,
-                        address: known || draft.address,
-                      });
-                    }}
-                    autoComplete="off"
-                  />
-                </label>
-                <label>
-                  Adresse du lieu
-                  <input
-                    value={draft.address}
                     onChange={(e) =>
-                      setDraft({ ...draft, address: e.target.value })
+                      setDraft({ ...draft, location: e.target.value })
                     }
-                    placeholder="12 rue…, bâtiment B…"
-                    autoComplete="street-address"
-                  />
+                  >
+                    <option value="">Sans lieu</option>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.title}>
+                        {loc.title}
+                        {loc.address ? ` — ${loc.address}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {locations.length === 0 ? (
+                    <span className="field-hint">
+                      Aucun lieu : créez-en un dans Paramètres.
+                    </span>
+                  ) : null}
                 </label>
                 <label>
                   Quantité

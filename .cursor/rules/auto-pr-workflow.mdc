@@ -1,0 +1,36 @@
+---
+description: Automatisation PR + migrations (exigence produit MKPK)
+alwaysApply: true
+---
+
+# Workflow agent MKPK — tout automatique
+
+Quand tu codes, corriges un bug, développes une idée, ou modifies le schéma / la base :
+
+1. **Branche** `cursor/<descriptif>-5861` depuis `main` à jour.
+2. **Implémente** (code UI/API **et** SQL si besoin).
+3. **Migrations DB** : tout changement de tables/colonnes/contraintes va dans un nouveau fichier ordonné  
+   `supabase/migrations/00X_....sql` (idempotent si possible).  
+   Ne demande pas d’exécuter le SQL à la main dans Supabase.
+4. **Build** local (`npm run build`) avant de conclure.
+5. **Commit + push** la branche.
+6. **PR automatique** :
+   - crée la PR **non-draft** (`draft: false`) dès que le travail est prêt ;
+   - base = `main` ;
+   - titre/description clairs (FR ok) ;
+   - si le travail a besoin d’itérations, mets à jour la **même** PR.
+7. **Finaliser sans attendre l’utilisateur** (sauf refus explicite) :
+   - passe la PR en ready si elle était draft ;
+   - **merge** dans `main` dès que mergeable (pas de conflits) ;
+   - Railway déploie seul ; `db:migrate` applique le SQL au start — **pas de GitHub Actions**.
+8. Annonce le résultat (lien PR / merge + rappel deploy).
+
+## Interdits
+- Laisser une PR en **Draft** « pour que l’utilisateur clique ».
+- Demander d’appliquer du SQL manuellement dans le dashboard Supabase alors qu’une migration fichier suffit.
+- Utiliser GitHub Actions pour deploy/migrate (crédits Git).
+
+## Référence technique
+- Deploy : merge → `main` → Railway
+- SQL auto : `npm run db:migrate` (preDeploy + start) via `DATABASE_URL`
+- Fichiers : `supabase/migrations/`, `scripts/db-migrate.mjs`, `railway.toml`

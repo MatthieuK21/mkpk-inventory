@@ -2,8 +2,10 @@
 builder = "NIXPACKS"
 
 [deploy]
-# Migrations SQL avant démarrage (sans GitHub Actions)
-preDeployCommand = ["npm", "run", "db:migrate"]
-startCommand = "npm run start"
+# Format Railway officiel : une commande par entrée
+preDeployCommand = ["npm run db:migrate"]
+# Aussi au démarrage : logs visibles dans Deploy + filet de sécurité
+# si le pre-deploy n'apparaît pas / n'est pas exécuté
+startCommand = "npm run db:migrate && npm run start"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3

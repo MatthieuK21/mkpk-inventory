@@ -33,6 +33,7 @@ import {
   startRegistration,
 } from "@simplewebauthn/browser";
 import LoginGate from "@/components/LoginGate";
+import BiometricSetupGate from "@/components/BiometricSetupGate";
 import AdminUsersPanel from "@/components/AdminUsersPanel";
 import SettingsLocationsPanel from "@/components/SettingsLocationsPanel";
 
@@ -94,6 +95,7 @@ export default function InventoryApp() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [pwdForm, setPwdForm] = useState({ current: "", next: "", confirm: "" });
+  const [skipBiometricSetup, setSkipBiometricSetup] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [orphanPrompt, setOrphanPrompt] = useState<LocationRecord | null>(null);
@@ -518,6 +520,7 @@ export default function InventoryApp() {
   function disconnect() {
     clearSession();
     setCurrentUser(null);
+    setSkipBiometricSetup(false);
     setShowAdmin(false);
     setShowSettings(false);
     setItems([]);
@@ -563,6 +566,12 @@ export default function InventoryApp() {
         writeSession(readSessionToken(), next);
         setCurrentUser(next);
       }
+      try {
+        localStorage.setItem("mkpk_prefer_webauthn", "1");
+      } catch {
+        /* ignore */
+      }
+      setSkipBiometricSetup(false);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 1500);
     } catch (err) {
@@ -576,7 +585,7 @@ export default function InventoryApp() {
     e.preventDefault();
     setError(null);
     if (pwdForm.next !== pwdForm.confirm) {
-      setError("Les mots de passe ne correspondent pas");
+      setError("Les codes ne correspondent pas");
       return;
     }
     try {
@@ -813,11 +822,12 @@ export default function InventoryApp() {
   if (currentUser.must_change_password) {
     return (
       <main className="gate">
-        <form className="gate-card" onSubmit={changePassword}>
+        <form className="gate-card gate-card-auth" onSubmit={changePassword}>
           <p className="brand">MKPK</p>
-          <h1>Nouveau mot de passe</h1>
-          <p className="muted">
-            Bonjour {currentUser.name}, choisissez un mot de passe personnel.
+          <h1>Nouveau code</h1>
+          <p className="muted gate-lead">
+            Bonjour {currentUser.name}, choisissez un code personnel. Ensuite
+            vous pourrez enregistrer votre empreinte ou Face ID.
           </p>
           {error && <p className="error">{error}</p>}
           <input
@@ -826,7 +836,7 @@ export default function InventoryApp() {
             onChange={(e) =>
               setPwdForm((p) => ({ ...p, current: e.target.value }))
             }
-            placeholder="Mot de passe actuel"
+            placeholder="Code actuel"
             autoComplete="current-password"
           />
           <input
@@ -835,7 +845,7 @@ export default function InventoryApp() {
             onChange={(e) =>
               setPwdForm((p) => ({ ...p, next: e.target.value }))
             }
-            placeholder="Nouveau mot de passe"
+            placeholder="Nouveau code"
             autoComplete="new-password"
             required
           />
@@ -849,9 +859,28 @@ export default function InventoryApp() {
             autoComplete="new-password"
             required
           />
-          <button type="submit">Enregistrer</button>
+          <button type="submit" className="gate-primary">
+            Enregistrer
+          </button>
         </form>
       </main>
+    );
+  }
+
+  if (
+    !currentUser.has_webauthn &&
+    !skipBiometricSetup &&
+    browserSupportsWebAuthn()
+  ) {
+    return (
+      <BiometricSetupGate
+        user={currentUser}
+        onRegistered={(user) => {
+          setCurrentUser(user);
+          setSkipBiometricSetup(false);
+        }}
+        onSkip={() => setSkipBiometricSetup(true)}
+      />
     );
   }
 

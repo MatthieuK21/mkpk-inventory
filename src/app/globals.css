@@ -915,6 +915,75 @@ button.danger {
   gap: 0.7rem;
 }
 
+.gate-card-auth {
+  text-align: center;
+}
+
+.gate-lead {
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.gate-primary {
+  width: 100%;
+  min-height: 3.1rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  border-radius: 14px;
+  margin-top: 0.35rem;
+}
+
+.gate-code {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.gate-code-toggle {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  box-shadow: none;
+  padding: 0.35rem 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  min-height: auto;
+}
+
+.gate-code-toggle:hover:not(:disabled) {
+  background: transparent;
+  color: var(--ink);
+}
+
+.gate-code-form {
+  display: grid;
+  gap: 0.55rem;
+  text-align: left;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+}
+
+.gate-code-hint {
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.gate-code-submit {
+  width: 100%;
+  background: color-mix(in srgb, var(--accent) 12%, white);
+  color: var(--accent-2);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.gate-code-submit:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, white);
+}
+
 .gate-card .ghost {
   background: transparent;
   color: var(--ink);

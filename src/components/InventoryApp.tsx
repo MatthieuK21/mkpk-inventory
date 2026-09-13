@@ -1031,7 +1031,12 @@ export default function InventoryApp() {
                 <span className="location-bubble-body">
                   <span className="location-bubble-name">{bubble.label}</span>
                   {bubble.address ? (
-                    <span className="location-bubble-address">{bubble.address}</span>
+                    <span
+                      className="location-bubble-address"
+                      title={bubble.address}
+                    >
+                      {bubble.address}
+                    </span>
                   ) : null}
                   <span className="location-bubble-count">
                     {bubble.count} objet{bubble.count > 1 ? "s" : ""}

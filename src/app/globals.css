@@ -566,6 +566,7 @@ button.ghost {
 
 button.danger {
   background: var(--danger);
+  color: #fff;
 }
 
 .coverflow-stage:not(.stage-fill) {
@@ -683,6 +684,7 @@ button.danger {
 .sheet {
   width: min(720px, 100%);
   background: white;
+  color: var(--ink);
   border-radius: 20px 20px 0 0;
   padding: 1.1rem 1.1rem calc(1.1rem + var(--safe-bottom));
   max-height: min(92dvh, 92svh, 900px);
@@ -690,6 +692,18 @@ button.danger {
   margin: 0 auto;
   box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
   -webkit-overflow-scrolling: touch;
+}
+
+/* Contre .app-shell .muted (texte clair pour le fond sombre) */
+.sheet .muted,
+.app-shell .sheet .muted {
+  color: var(--muted);
+}
+
+.sheet input::placeholder,
+.sheet textarea::placeholder {
+  color: #6b7a72;
+  opacity: 1;
 }
 
 @media (min-width: 720px) {
@@ -1148,6 +1162,16 @@ button.danger {
   color: var(--muted, #6b7280);
 }
 
+/* ghost + danger : texte rouge lisible, pas fond rouge (sinon rouge sur rouge) */
+button.ghost.danger,
 .ghost.danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+}
+
+button.ghost.danger:hover:not(:disabled),
+.ghost.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, white);
   color: var(--danger);
 }

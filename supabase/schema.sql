@@ -26,9 +26,11 @@ create index if not exists items_category_id_idx on public.items(category_id);
 create index if not exists items_name_idx on public.items using gin (to_tsvector('french', coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(location, '')));
 
 -- Mise à jour auto de updated_at
+-- search_path figé (linter Supabase 0011_function_search_path_mutable)
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -51,11 +53,11 @@ on conflict (id) do nothing;
 alter table public.categories enable row level security;
 alter table public.items enable row level security;
 
--- Lecture publique des images du bucket (URLs publiques)
+-- Les images sont servies via des URLs publiques (bucket public) :
+-- /storage/v1/object/public/inventory/... ne nécessite AUCUNE policy SELECT
+-- sur storage.objects. On supprime l'ancienne policy de lecture large qui
+-- autorisait le listing de tout le bucket (linter 0025_public_bucket_allows_listing).
 drop policy if exists "Public read inventory images" on storage.objects;
-create policy "Public read inventory images"
-  on storage.objects for select
-  using (bucket_id = 'inventory');
 
 -- Catégories de départ (inventaire maison)
 insert into public.categories (name, color) values

@@ -165,3 +165,26 @@ alter table public.items
   );
 
 create index if not exists items_owner_idx on public.items(owner);
+
+-- Policies RLS "deny-all" pour anon/authenticated (linter 0008_rls_enabled_no_policy).
+-- L'app accède aux tables uniquement via la service role (bypass RLS) ; l'accès direct
+-- API par anon/authenticated reste refusé. Une policy explicite évite l'avertissement
+-- "RLS enabled, no policy". (Les tables locations / user_location_grants / webauthn_* /
+-- schema_migrations sont couvertes par les migrations.)
+do $$
+declare
+  t text;
+  policy_name constant text := 'Deny anon and authenticated';
+  tables constant text[] := array[
+    'app_users', 'categories', 'item_comments', 'item_history', 'items'
+  ];
+begin
+  foreach t in array tables loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists %I on public.%I', policy_name, t);
+    execute format(
+      'create policy %I on public.%I for all to anon, authenticated using (false) with check (false)',
+      policy_name, t
+    );
+  end loop;
+end $$;

@@ -26,9 +26,11 @@ create index if not exists items_category_id_idx on public.items(category_id);
 create index if not exists items_name_idx on public.items using gin (to_tsvector('french', coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(location, '')));
 
 -- Mise à jour auto de updated_at
+-- search_path figé (linter Supabase 0011_function_search_path_mutable)
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -51,11 +53,11 @@ on conflict (id) do nothing;
 alter table public.categories enable row level security;
 alter table public.items enable row level security;
 
--- Lecture publique des images du bucket (URLs publiques)
+-- Les images sont servies via des URLs publiques (bucket public) :
+-- /storage/v1/object/public/inventory/... ne nécessite AUCUNE policy SELECT
+-- sur storage.objects. On supprime l'ancienne policy de lecture large qui
+-- autorisait le listing de tout le bucket (linter 0025_public_bucket_allows_listing).
 drop policy if exists "Public read inventory images" on storage.objects;
-create policy "Public read inventory images"
-  on storage.objects for select
-  using (bucket_id = 'inventory');
 
 -- Catégories de départ (inventaire maison)
 insert into public.categories (name, color) values
@@ -163,3 +165,26 @@ alter table public.items
   );
 
 create index if not exists items_owner_idx on public.items(owner);
+
+-- Policies RLS "deny-all" pour anon/authenticated (linter 0008_rls_enabled_no_policy).
+-- L'app accède aux tables uniquement via la service role (bypass RLS) ; l'accès direct
+-- API par anon/authenticated reste refusé. Une policy explicite évite l'avertissement
+-- "RLS enabled, no policy". (Les tables locations / user_location_grants / webauthn_* /
+-- schema_migrations sont couvertes par les migrations.)
+do $$
+declare
+  t text;
+  policy_name constant text := 'Deny anon and authenticated';
+  tables constant text[] := array[
+    'app_users', 'categories', 'item_comments', 'item_history', 'items'
+  ];
+begin
+  foreach t in array tables loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists %I on public.%I', policy_name, t);
+    execute format(
+      'create policy %I on public.%I for all to anon, authenticated using (false) with check (false)',
+      policy_name, t
+    );
+  end loop;
+end $$;
